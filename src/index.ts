@@ -1,15 +1,17 @@
-// We define the empty imports so the auto-complete feature works as expected.
 import {} from '@dcl/sdk/math'
-import { engine } from '@dcl/sdk/ecs'
+import { isServer } from '@dcl/sdk/network'
 
-import { changeColorSystem, circularSystem } from './systems'
-import { setupUi } from './ui'
+import { initServer } from './server/game'
+import { initClient } from './client/render'
+import { setupUi } from './client/ui'
 
 export function main() {
-  // Defining behavior. See `src/systems.ts` file.
-  engine.addSystem(circularSystem)
-  engine.addSystem(changeColorSystem)
-
-  // draw UI. Here is the logic to spawn cubes.
-  setupUi()
+  if (isServer()) {
+    // Headless authority: game logic, validation, state sync.
+    initServer()
+  } else {
+    // Client: visuals, camera, touch controls, UI.
+    initClient()
+    setupUi()
+  }
 }
