@@ -26,7 +26,7 @@ import {
   inHarbor
 } from '../shared/config'
 import { initAudio, sfx, SFX } from './audio'
-import { initAvatars } from './avatars'
+import { initAvatars, myAvatarPosition } from './avatars'
 import { inputSystem_ } from './input'
 import { gameState, myCell, myPlanCells, mySlot, phaseClockSystem } from './state'
 import { createBoardEdge, createGridWindow, createHarbor, createWaterFloor, gridWindowSystem, waterScrollSystem } from './water'
@@ -41,16 +41,17 @@ const CAM_OFFSET = { x: -4, y: 16, z: -9 }
 const CAM_DEADZONE = 0.8 // m the avatar can wander before the camera follows
 const SIGHT_CELLS = VIEW_CELLS + 3 // sharks/pickups beyond this stay hidden
 
-// Camera trails the avatar, but only past a deadzone so movement reads on screen.
+// Camera trails my drawn avatar (the real one is hidden underwater), only
+// past a deadzone so movement reads on screen.
 function cameraFollowSystem(dt: number): void {
   if (!camEntity) return
-  const playerT = Transform.getOrNull(engine.PlayerEntity)
-  if (!playerT) return
+  const target = myAvatarPosition() ?? Transform.getOrNull(engine.PlayerEntity)?.position
+  if (!target) return
   const camT = Transform.getMutable(camEntity)
   const anchorX = camT.position.x - CAM_OFFSET.x
   const anchorZ = camT.position.z - CAM_OFFSET.z
-  const dx = playerT.position.x - anchorX
-  const dz = playerT.position.z - anchorZ
+  const dx = target.x - anchorX
+  const dz = target.z - anchorZ
   const dist = Math.sqrt(dx * dx + dz * dz)
   if (dist <= CAM_DEADZONE) return
   const pull = (dist - CAM_DEADZONE) / dist
@@ -173,7 +174,7 @@ function createMyCellMarker(): void {
   }
 }
 
-function myCellMarkerSystem(dt: number): void {
+function myCellMarkerSystem(): void {
   const slot = mySlot()
   const cell = myCell()
   const t = Transform.getMutable(myMarker)
@@ -182,15 +183,9 @@ function myCellMarkerSystem(dt: number): void {
     hideStepMarkers(0)
     return
   }
-  const x = cellCenter(cell.i)
-  const z = cellCenter(cell.j)
-  const first = t.scale.x === 0
-  const k = first ? 1 : Math.min(1, dt / 0.08)
-  t.position = Vector3.create(
-    t.position.x + (x - t.position.x) * k,
-    WATER_Y + 0.26,
-    t.position.z + (z - t.position.z) * k
-  )
+  // Ride along with my avatar as it swims, so frame and avatar move as one.
+  const at = myAvatarPosition()
+  t.position = Vector3.create(at ? at.x : cellCenter(cell.i), WATER_Y + 0.26, at ? at.z : cellCenter(cell.j))
   t.scale = Vector3.One()
 
   // Plan frames, only while picking (myPlanCells is empty otherwise).

@@ -19,7 +19,12 @@ const GLIDE_TIME = 0.45 // s for a whole planned path (fits the 0.5 s execution)
 const SWIM_HOLD = 0.7 // s of swim before settling into float
 const FLOAT_LOOP = 1.6 // clip length; re-triggered so it keeps treading
 
+// The AvatarShape sits at the origin of a parent "mover" that we slide each
+// frame. Changing an AvatarShape's own Transform makes the client walk it
+// there at its own pace (lagging the cell frame), so its Transform never
+// changes; the mover carries position, rotation and hide-on-death.
 interface Swimmer {
+  mover: Entity
   entity: Entity
   profileKey: string
   points: { x: number; y: number; z: number }[] // polyline being swum, start → end
@@ -62,6 +67,19 @@ export function initAvatars(): void {
   engine.addSystem(swimmerSystem)
 }
 
+// Where my avatar is drawn right now (mid-swim included), so the cell
+// frame and camera move with it instead of jumping to the synced cell.
+export function myAvatarPosition(): { x: number; y: number; z: number } | null {
+  const me = mySlot()
+  if (!me) return null
+  for (const [slotEntity, slot] of engine.getEntitiesWith(PlayerSlot)) {
+    if (slot.address !== me.address) continue
+    const s = swimmers.get(slotEntity)
+    return s ? Transform.get(s.mover).position : null
+  }
+  return null
+}
+
 function heightAt(i: number, j: number): number {
   return inHarbor(i, j) ? RAFT_Y : AVATAR_Y
 }
@@ -96,7 +114,12 @@ function swimmerSystem(dt: number): void {
     const profileKey = `${slot.bodyShape}|${slot.name}|${wearables.join(',')}`
     let s = swimmers.get(slotEntity)
     if (!s || s.profileKey !== profileKey) {
-      if (s) engine.removeEntity(s.entity)
+      if (s) {
+        engine.removeEntity(s.entity)
+        engine.removeEntity(s.mover)
+      }
+      const mover = engine.addEntity()
+      Transform.create(mover, { position: Vector3.create(x, heightAt(cell.i, cell.j), z) })
       const entity = engine.addEntity()
       AvatarShape.create(entity, {
         id: `swimmer-${slot.address}`,
@@ -108,8 +131,8 @@ function swimmerSystem(dt: number): void {
         hairColor: slot.hairColor,
         eyeColor: slot.eyesColor
       })
-      Transform.create(entity, { position: Vector3.create(x, heightAt(cell.i, cell.j), z) })
-      s = { entity, profileKey, points: [point(cell.i, cell.j)], toX: x, toZ: z, t: GLIDE_TIME, yaw: 0, emote: '', emoteAt: 0, stamp: 0 }
+      Transform.create(entity, { parent: mover })
+      s = { mover, entity, profileKey, points: [point(cell.i, cell.j)], toX: x, toZ: z, t: GLIDE_TIME, yaw: 0, emote: '', emoteAt: 0, stamp: 0 }
       swimmers.set(slotEntity, s)
       if (!onRaft) play(s, FLOAT)
     }
@@ -117,7 +140,7 @@ function swimmerSystem(dt: number): void {
     // New cell: swim the executed path (still in slot.path) corner by
     // corner; anything else (respawn, join) snaps.
     if (x !== s.toX || z !== s.toZ) {
-      const pos = Transform.get(s.entity).position
+      const pos = Transform.get(s.mover).position
       const path = Array.from(slot.path)
       const di = path.reduce((a, c) => a + (c === 3 ? 1 : c === 2 ? -1 : 0), 0)
       const dj = path.reduce((a, c) => a + (c === 0 ? 1 : c === 1 ? -1 : 0), 0)
@@ -146,7 +169,7 @@ function swimmerSystem(dt: number): void {
     const b = s.points[Math.min(at + 1, segs)]
     const f = segs > 0 ? e * segs - at : 1
     if (b.x !== a.x || b.z !== a.z) s.yaw = (Math.atan2(b.x - a.x, b.z - a.z) * 180) / Math.PI
-    Transform.createOrReplace(s.entity, {
+    Transform.createOrReplace(s.mover, {
       position: Vector3.create(a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f, a.z + (b.z - a.z) * f),
       rotation: Quaternion.fromEulerDegrees(0, s.yaw, 0),
       scale: slot.dead ? Vector3.Zero() : Vector3.One()
@@ -165,6 +188,7 @@ function swimmerSystem(dt: number): void {
   for (const [slotEntity, s] of swimmers) {
     if (!PlayerSlot.getOrNull(slotEntity)) {
       engine.removeEntity(s.entity)
+      engine.removeEntity(s.mover)
       swimmers.delete(slotEntity)
     }
   }

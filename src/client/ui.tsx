@@ -51,10 +51,16 @@ export function setupUi() {
   // D-pad in the device safe area: nearer the left thumb than the
   // interactable area, which starts right of the Explorer's left controls.
   ReactEcsRenderer.addUiRenderer(engine.addEntity(), movePad, { screenInset: 'device', zIndex: 20 })
+  // No server: a full-screen blocker over everything, Explorer areas included.
+  ReactEcsRenderer.addUiRenderer(engine.addEntity(), connectionLost, { screenInset: 'none', zIndex: 30 })
 }
 
+const serverLost = () => !serverConnected && noServerElapsed > 12
+
+const connectionLost = () => (serverLost() ? <ConnectionError /> : null)
+
 const movePad = () => {
-  if (!serverConnected && noServerElapsed > 12) return null
+  if (serverLost()) return null
   const slot = mySlot()
   if (!slot || slot.dead) return null
   return (
@@ -572,7 +578,7 @@ function ConnectionError() {
 }
 
 const uiComponent = () => {
-  if (!serverConnected && noServerElapsed > 12) return <ConnectionError />
+  if (serverLost()) return null
 
   const slot = mySlot()
   const { phase } = gameState()
