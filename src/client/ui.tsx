@@ -48,6 +48,20 @@ export function setupUi() {
   ReactEcsRenderer.setUiRenderer(uiComponent, { screenInset: 'interactable', zIndex: 10 })
   // Full-screen red wash while the sharks strike (outside the inset area).
   ReactEcsRenderer.addUiRenderer(engine.addEntity(), vignette, { screenInset: 'none', zIndex: 0 })
+  // D-pad in the device safe area: nearer the left thumb than the
+  // interactable area, which starts right of the Explorer's left controls.
+  ReactEcsRenderer.addUiRenderer(engine.addEntity(), movePad, { screenInset: 'device', zIndex: 20 })
+}
+
+const movePad = () => {
+  if (!serverConnected && noServerElapsed > 12) return null
+  const slot = mySlot()
+  if (!slot || slot.dead) return null
+  return (
+    <UiEntity uiTransform={{ width: '100%', height: '100%' }}>
+      <DPad enabled={canMoveNow()} />
+    </UiEntity>
+  )
 }
 
 const vignette = () =>
@@ -308,6 +322,7 @@ function Radar(props: { ci: number; cj: number; myAddress: string }) {
 // --- bottom-left: d-pad ---
 const PAD = 92
 const PAD_GAP = 6
+const DPAD_LEFT = 40
 
 function PadButton(props: { dir: string; icon: string; col: number; row: number; di: number; dj: number; enabled: boolean }) {
   const pressed = isPressed(props.dir)
@@ -339,7 +354,8 @@ function PadButton(props: { dir: string; icon: string; col: number; row: number;
 function DPad(props: { enabled: boolean }) {
   const size = PAD * 3 + PAD_GAP * 2
   return (
-    <UiEntity uiTransform={{ positionType: 'absolute', position: { left: 20, bottom: 20 }, width: size, height: size }}>
+    // The left arrow's row sits above the Explorer's emote button (bottom-left).
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { left: DPAD_LEFT, bottom: 16 }, width: size, height: size }}>
       <PadButton dir="up" icon={ICON.up} col={1} row={0} di={0} dj={1} enabled={props.enabled} />
       <PadButton dir="left" icon={ICON.left} col={0} row={1} di={-1} dj={0} enabled={props.enabled} />
       <PadButton dir="right" icon={ICON.right} col={2} row={1} di={1} dj={0} enabled={props.enabled} />
@@ -508,7 +524,6 @@ const uiComponent = () => {
       <TurnPill playersTurn={playersTurn} remaining={remaining} status={status} statusColor={statusColor} />
       {playersTurn && !dead && myCellInDanger() && <LaneWarning />}
       {slot && cell && <Radar ci={cell.i} cj={cell.j} myAddress={slot.address} />}
-      {!dead && <DPad enabled={canMove} />}
       {!dead && <SlapButton />}
       {dead && <DeathCard score={slot?.score ?? 0} />}
     </UiEntity>
