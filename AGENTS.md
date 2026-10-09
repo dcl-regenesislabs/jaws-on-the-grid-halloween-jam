@@ -66,7 +66,7 @@ Game details belong in `design/` and scene files.
 # Project rules (this repo)
 
 Decentraland SDK7 scene, `@dcl/sdk` latest via `@dcl/sdk-commands` 7.30+.
-Repo: github.com/dcl-regenesislabs/manu-kuruk-halloween-jam. Windows dev PC.
+Repo: github.com/dcl-regenesislabs/jaws-on-the-grid-halloween-jam. Windows dev PC.
 `CLAUDE.md` only imports this file; keep all guidance here.
 
 ## CLI only

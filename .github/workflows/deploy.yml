@@ -5,7 +5,7 @@
 #   - Repository secret DCL_PRIVATE_KEY: private key of a wallet that owns that NAME
 #     or was granted deploy permission on the World. Use a dedicated wallet.
 #     Set it in GitHub: Settings -> Secrets and variables -> Actions -> New repository secret,
-#     or from a terminal: gh secret set DCL_PRIVATE_KEY --repo dcl-regenesislabs/manu-kuruk-halloween-jam
+#     or from a terminal: gh secret set DCL_PRIVATE_KEY --repo dcl-regenesislabs/jaws-on-the-grid-halloween-jam
 name: deploy-world
 
 on:
