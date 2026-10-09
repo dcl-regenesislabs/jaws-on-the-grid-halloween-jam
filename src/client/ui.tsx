@@ -3,7 +3,7 @@ import { Color4 } from '@dcl/sdk/math'
 import ReactEcs, { Label, ReactEcsRenderer, UiEntity } from '@dcl/sdk/react-ecs'
 
 import { Pickup, PlayerSlot } from '../shared/components'
-import { CENTER_CELL, HARBOR_RADIUS, PLAYERS_TIME, SHARKS_TIME, inHarbor, tierOf } from '../shared/config'
+import { HARBOR_MIN, HARBOR_SIZE, PLAYERS_TIME, SHARKS_TIME, inHarbor, tierOf } from '../shared/config'
 import { room } from '../shared/messages'
 import { canPlanNow, canSlapNow, canStep, requestCancel, requestSlap, requestStep, slapCooldownLeft } from './input'
 import { gameState, myCell, myMaxSteps, myPlan, myTargetInDanger, mySlot, phaseElapsed } from './state'
@@ -150,7 +150,7 @@ function Stats(props: { score: number; lives: number; harbor: boolean; tier: num
       >
         <Icon src={props.harbor ? ICON.raft : ICON.fin} size={26} />
         <Label
-          value={props.harbor ? 'SAFE HARBOR' : `DEPTH ${props.tier + 1}`}
+          value={props.harbor ? 'PRACTICE RAFT' : `DEPTH ${props.tier + 1}`}
           fontSize={16}
           color={depthColor}
           textAlign="middle-left"
@@ -201,6 +201,41 @@ function TurnPill(props: { playersTurn: boolean; remaining: number; status: stri
         </UiEntity>
       </UiEntity>
       <Label value={props.status} fontSize={16} color={props.statusColor} textAlign="middle-center" uiTransform={{ width: W, height: 26, margin: { top: 4 } }} />
+    </UiEntity>
+  )
+}
+
+// On the raft: how a turn works. The game starts once you swim off it.
+function RaftHint() {
+  const lines = [
+    'PICK A MOVE: plan your path with the arrows',
+    'GO!: everyone swims, sharks dash their red lanes',
+    'End on a red lane and you get chomped'
+  ]
+  return (
+    <UiEntity
+      uiTransform={{
+        positionType: 'absolute',
+        position: { bottom: 24, left: '50%' },
+        margin: { left: -230 },
+        width: 460,
+        flexDirection: 'column',
+        alignItems: 'center',
+        padding: { top: 10, bottom: 12, left: 16, right: 16 },
+        borderRadius: 20,
+        borderWidth: 2,
+        borderColor: rgba(0.69, 0.48, 0.27, 1)
+      }}
+      uiBackground={{ color: INK }}
+    >
+      <UiEntity uiTransform={{ height: 34, flexDirection: 'row', alignItems: 'center' }}>
+        <Icon src={ICON.raft} size={30} margin={{ right: 8 }} />
+        <Label value="PRACTICE RAFT" fontSize={20} color={GOLD} textAlign="middle-left" uiTransform={{ width: 200, height: 30 }} />
+      </UiEntity>
+      {lines.map((line, n) => (
+        <Label key={`hint-${n}`} value={line} fontSize={15} color={MUTED} textAlign="middle-center" uiTransform={{ width: '100%', height: 22 }} />
+      ))}
+      <Label value="Swim off the raft to start!" fontSize={18} color={MINT} textAlign="middle-center" uiTransform={{ width: '100%', height: 28, margin: { top: 4 } }} />
     </UiEntity>
   )
 }
@@ -264,10 +299,11 @@ function Radar(props: { ci: number; cj: number; myAddress: string }) {
   const cellPx = RADAR / (2 * RADAR_CELLS)
 
   // Harbor square, when in range.
-  const hi = CENTER_CELL - props.ci
-  const hj = CENTER_CELL - props.cj
-  const hs = (2 * HARBOR_RADIUS + 1) * cellPx
-  if (Math.abs(hi) < RADAR_CELLS + HARBOR_RADIUS && Math.abs(hj) < RADAR_CELLS + HARBOR_RADIUS) {
+  // Raft center relative to my cell center, in cells.
+  const hi = HARBOR_MIN + HARBOR_SIZE / 2 - (props.ci + 0.5)
+  const hj = HARBOR_MIN + HARBOR_SIZE / 2 - (props.cj + 0.5)
+  const hs = HARBOR_SIZE * cellPx
+  if (Math.abs(hi) < RADAR_CELLS + HARBOR_SIZE / 2 && Math.abs(hj) < RADAR_CELLS + HARBOR_SIZE / 2) {
     dots.push(
       <UiEntity
         key="harbor"
@@ -278,7 +314,7 @@ function Radar(props: { ci: number; cj: number; myAddress: string }) {
           height: hs,
           borderRadius: 4
         }}
-        uiBackground={{ color: rgba(0.38, 0.96, 0.62, 0.25) }}
+        uiBackground={{ color: rgba(0.69, 0.48, 0.27, 0.6) }}
       />
     )
   }
@@ -578,6 +614,7 @@ const uiComponent = () => {
       <TurnPill playersTurn={playersTurn} remaining={remaining} status={status} statusColor={statusColor} />
       {playersTurn && !dead && !stunned && <StepPips used={plan.length} max={maxSteps} />}
       {playersTurn && !dead && myTargetInDanger() && <LaneWarning />}
+      {harbor && !dead && <RaftHint />}
       {slot && cell && <Radar ci={cell.i} cj={cell.j} myAddress={slot.address} />}
       {!dead && <SlapButton />}
       {dead && <DeathCard score={slot?.score ?? 0} />}

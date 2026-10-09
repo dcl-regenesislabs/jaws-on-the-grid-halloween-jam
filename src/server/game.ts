@@ -8,7 +8,8 @@ import { room } from '../shared/messages'
 import {
   ATTACK_COOLDOWN,
   BASE_STEPS,
-  CENTER_CELL,
+  HARBOR_MAX,
+  HARBOR_MIN,
   COIN_POINTS,
   DESPAWN_CELLS,
   HUNT_CHANCE,
@@ -61,6 +62,17 @@ const DIRS: [number, number][] = [
 
 function randInt(min: number, max: number): number {
   return min + Math.floor(Math.random() * (max - min + 1))
+}
+
+// A random raft cell, preferring one no other player stands on.
+function raftSpawnCell(): [number, number] {
+  const taken = alivePlayers()
+  let cell: [number, number] = [HARBOR_MIN, HARBOR_MIN]
+  for (let attempt = 0; attempt < 12; attempt++) {
+    cell = [randInt(HARBOR_MIN, HARBOR_MAX), randInt(HARBOR_MIN, HARBOR_MAX)]
+    if (!taken.some((p) => p.i === cell[0] && p.j === cell[1])) break
+  }
+  return cell
 }
 
 function chebyshev(ai: number, aj: number, bi: number, bj: number): number {
@@ -171,8 +183,9 @@ export function initServer() {
     if (!found || !found.slot.dead) return
     found.slot.dead = false
     found.slot.stunned = false
-    found.slot.cellI = CENTER_CELL
-    found.slot.cellJ = CENTER_CELL
+    const [si, sj] = raftSpawnCell()
+    found.slot.cellI = si
+    found.slot.cellJ = sj
     found.slot.path = []
   })
 
@@ -248,11 +261,12 @@ function syncPlayerSlots() {
     if (!findSlot(key)) {
       console.log('[server] new player slot:', key)
       const slot = engine.addEntity()
+      const [si, sj] = raftSpawnCell()
       PlayerSlot.create(slot, {
         address: key,
         name: identity.address.slice(0, 8),
-        cellI: CENTER_CELL,
-        cellJ: CENTER_CELL,
+        cellI: si,
+        cellJ: sj,
         path: [],
         maxSteps: BASE_STEPS,
         score: 0,

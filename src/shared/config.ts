@@ -8,8 +8,13 @@ export const WATER_Y = 2.4
 export const AVATAR_Y = WATER_Y - 1.2 // neck-deep
 export const CENTER_CELL = GRID / 2
 
-// Safe harbor around the spawn: sharks never enter, no points either.
-export const HARBOR_RADIUS = 2 // Chebyshev cells → a 5×5 square
+// Safe harbor: a fixed 6×6-cell raft at the center where players spawn and
+// practise the turn rhythm. Sharks never enter, nothing scores; the game
+// starts when you swim off it.
+export const HARBOR_SIZE = 6
+export const HARBOR_MIN = CENTER_CELL - HARBOR_SIZE / 2 // first raft cell (both axes)
+export const HARBOR_MAX = HARBOR_MIN + HARBOR_SIZE - 1 // last raft cell
+export const RAFT_Y = WATER_Y + 0.12 // deck height; avatars stand on it
 
 // Global turns (seconds). Server is the authority; clients only use these
 // for presentation (timer bar, glide/lunge animation).
@@ -84,7 +89,7 @@ export function tierOf(i: number, j: number): number {
 }
 
 export function inHarbor(i: number, j: number): boolean {
-  return depthOf(i, j) <= HARBOR_RADIUS
+  return i >= HARBOR_MIN && i <= HARBOR_MAX && j >= HARBOR_MIN && j <= HARBOR_MAX
 }
 
 export function inBoard(i: number, j: number): boolean {

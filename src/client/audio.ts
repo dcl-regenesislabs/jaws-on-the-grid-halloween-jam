@@ -5,6 +5,7 @@ import { mySlot, onPhaseStart } from './state'
 
 // Audio feedback: turn cues, my own bites/pickups, and music whose intensity
 // follows how deep you are (a 0.5 s sharks' turn is too short to swap tracks).
+// On the practice raft only the ocean plays: the game starts in the water.
 
 export const SFX = {
   turn: 'assets/sounds/kenney-interface/tick_002.mp3',
@@ -16,7 +17,7 @@ export const SFX = {
   bite: 'assets/sounds/big-water-splash.mp3'
 }
 
-// Harbor → calm, then tension, danger, climax as depth tiers grow.
+// Open water by depth: calm, tension, danger, climax.
 const MUSIC = [
   'assets/sounds/music/jaws-calm-loop.mp3',
   'assets/sounds/music/jaws-tension-loop.mp3',
@@ -44,8 +45,14 @@ let lastScore = 0
 let lastLives = 0
 let lastDead = false
 
+function onRaft(): boolean {
+  const slot = mySlot()
+  return !slot || inHarbor(slot.cellI, slot.cellJ)
+}
+
 function musicFor(i: number, j: number, dead: boolean): string {
-  if (dead || inHarbor(i, j)) return MUSIC[0]
+  if (inHarbor(i, j)) return ''
+  if (dead) return MUSIC[0]
   const tier = tierOf(i, j)
   return MUSIC[Math.min(MUSIC.length - 1, tier + 1)]
 }
@@ -65,6 +72,7 @@ export function initAudio(): void {
   Transform.create(musicEntity, {})
 
   onPhaseStart((phase) => {
+    if (onRaft()) return
     if (phase === 'players') sfx(SFX.turn, 0.5)
     else sfx(SFX.sharks, 0.6)
   })
@@ -90,6 +98,7 @@ function audioSystem(): void {
   const track = musicFor(slot.cellI, slot.cellJ, slot.dead)
   if (track !== musicTrack) {
     musicTrack = track
-    AudioSource.createOrReplace(musicEntity, { audioClipUrl: track, playing: true, loop: true, volume: 0.35, global: true })
+    if (track) AudioSource.createOrReplace(musicEntity, { audioClipUrl: track, playing: true, loop: true, volume: 0.35, global: true })
+    else if (AudioSource.has(musicEntity)) AudioSource.stopSound(musicEntity)
   }
 }

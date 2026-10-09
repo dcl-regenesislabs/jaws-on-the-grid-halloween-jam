@@ -2,12 +2,13 @@ import { AvatarModifierArea, AvatarModifierType, AvatarShape, Entity, Transform,
 import { Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { PlayerSlot } from '../shared/components'
-import { AVATAR_Y, BOARD_SIZE, CELL, cellCenter, pathCells } from '../shared/config'
+import { AVATAR_Y, BOARD_SIZE, CELL, RAFT_Y, cellCenter, inHarbor, pathCells } from '../shared/config'
 import { myCell, mySlot } from './state'
 
 // Every player is drawn as an AvatarShape copy of their real look (profile
 // synced in their slot), gliding cell to cell: swim emote while changing
-// cell, float emote while holding a cell. Real avatars stand on the floor
+// cell, float emote while holding a cell. On the practice raft they stand
+// on the deck with no emote. Real avatars stand on the floor
 // under the opaque water (see WATER_Y), still moved with movePlayerTo so the
 // camera and voice follow the game; only their nametags need hiding.
 // (AMT_HIDE_AVATARS would hide the AvatarShapes too, verified on the phone.)
@@ -21,7 +22,7 @@ const FLOAT_LOOP = 1.6 // clip length; re-triggered so it keeps treading
 interface Swimmer {
   entity: Entity
   profileKey: string
-  points: { x: number; z: number }[] // polyline being swum, start → end
+  points: { x: number; y: number; z: number }[] // polyline being swum, start → end
   toX: number
   toZ: number
   t: number // seconds since the last cell change
@@ -61,6 +62,14 @@ export function initAvatars(): void {
   engine.addSystem(swimmerSystem)
 }
 
+function heightAt(i: number, j: number): number {
+  return inHarbor(i, j) ? RAFT_Y : AVATAR_Y
+}
+
+function point(i: number, j: number) {
+  return { x: cellCenter(i), y: heightAt(i, j), z: cellCenter(j) }
+}
+
 function play(s: Swimmer, emote: string): void {
   s.emote = emote
   s.emoteAt = clock
@@ -80,6 +89,7 @@ function swimmerSystem(dt: number): void {
     if (!cell) continue
     const x = cellCenter(cell.i)
     const z = cellCenter(cell.j)
+    const onRaft = inHarbor(cell.i, cell.j)
 
     // (Re)build when the profile changes.
     const wearables = wearablesOf(slot)
@@ -98,10 +108,10 @@ function swimmerSystem(dt: number): void {
         hairColor: slot.hairColor,
         eyeColor: slot.eyesColor
       })
-      Transform.create(entity, { position: Vector3.create(x, AVATAR_Y, z) })
-      s = { entity, profileKey, points: [{ x, z }], toX: x, toZ: z, t: GLIDE_TIME, yaw: 0, emote: '', emoteAt: 0, stamp: 0 }
+      Transform.create(entity, { position: Vector3.create(x, heightAt(cell.i, cell.j), z) })
+      s = { entity, profileKey, points: [point(cell.i, cell.j)], toX: x, toZ: z, t: GLIDE_TIME, yaw: 0, emote: '', emoteAt: 0, stamp: 0 }
       swimmers.set(slotEntity, s)
-      play(s, FLOAT)
+      if (!onRaft) play(s, FLOAT)
     }
 
     // New cell: swim the executed path (still in slot.path) corner by
@@ -115,17 +125,16 @@ function swimmerSystem(dt: number): void {
       const startJ = cell.j - dj
       const fromPath = path.length > 0 && Math.abs(cellCenter(startI) - pos.x) + Math.abs(cellCenter(startJ) - pos.z) < CELL
       const near = Math.abs(x - pos.x) + Math.abs(z - pos.z) <= CELL + 0.1
-      if (fromPath) {
-        s.points = [{ x: pos.x, z: pos.z }, ...pathCells(startI, startJ, path).map(([i, j]) => ({ x: cellCenter(i), z: cellCenter(j) }))]
-      } else if (near) {
-        s.points = [{ x: pos.x, z: pos.z }, { x, z }]
-      } else {
-        s.points = [{ x, z }]
-      }
+      const here = { x: pos.x, y: pos.y, z: pos.z }
+      if (fromPath) s.points = [here, ...pathCells(startI, startJ, path).map(([i, j]) => point(i, j))]
+      else if (near) s.points = [here, point(cell.i, cell.j)]
+      else s.points = [point(cell.i, cell.j)]
       s.toX = x
       s.toZ = z
       s.t = 0
-      if (s.points.length > 1) play(s, SWIM)
+      // Swim if any of the way is water; walking the deck needs no emote.
+      if (s.points.length > 1 && s.points.some((p) => p.y === AVATAR_Y)) play(s, SWIM)
+      else s.emote = ''
     }
 
     s.t += dt
@@ -138,14 +147,18 @@ function swimmerSystem(dt: number): void {
     const f = segs > 0 ? e * segs - at : 1
     if (b.x !== a.x || b.z !== a.z) s.yaw = (Math.atan2(b.x - a.x, b.z - a.z) * 180) / Math.PI
     Transform.createOrReplace(s.entity, {
-      position: Vector3.create(a.x + (b.x - a.x) * f, AVATAR_Y, a.z + (b.z - a.z) * f),
+      position: Vector3.create(a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f, a.z + (b.z - a.z) * f),
       rotation: Quaternion.fromEulerDegrees(0, s.yaw, 0),
       scale: slot.dead ? Vector3.Zero() : Vector3.One()
     })
 
-    // Settle into float after the stroke; keep treading on a loop.
-    if (s.emote === SWIM && clock - s.emoteAt > SWIM_HOLD) play(s, FLOAT)
+    // Settle into float after the stroke; keep treading on a loop. On the
+    // raft just stand (a running clip ends on its own).
+    const done = k >= 1
+    if (onRaft && done) s.emote = ''
+    else if (s.emote === SWIM && clock - s.emoteAt > SWIM_HOLD && done) play(s, FLOAT)
     else if (s.emote === FLOAT && clock - s.emoteAt > FLOAT_LOOP) play(s, FLOAT)
+    else if (s.emote === '' && !onRaft && done) play(s, FLOAT)
   }
 
   // Players who left.

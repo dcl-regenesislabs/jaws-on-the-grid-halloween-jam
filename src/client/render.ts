@@ -19,11 +19,11 @@ import {
   BOARD_SIZE,
   CELL,
   CENTER_CELL,
-  HARBOR_RADIUS,
   SHARKS_TIME,
   VIEW_CELLS,
   WATER_Y,
-  cellCenter
+  cellCenter,
+  inHarbor
 } from '../shared/config'
 import { initAudio, sfx, SFX } from './audio'
 import { initAvatars } from './avatars'
@@ -99,7 +99,7 @@ export function initClient() {
   // around you, so it unrolls as you swim.
   createWaterFloor(BOARD_SIZE, WATER_Y, BOARD_SIZE / 2, BOARD_SIZE / 2)
   createGridWindow()
-  createHarbor(HARBOR_RADIUS)
+  createHarbor()
   createBoardEdge()
   createMyCellMarker()
 
@@ -132,7 +132,7 @@ function avatarFollowSystem(_dt: number): void {
   if (cell.i === lastI && cell.j === lastJ) return
   // Teleport on spawn/respawn; glide when swimming a planned path.
   const jump = lastI < 0 || Math.abs(cell.i - lastI) + Math.abs(cell.j - lastJ) > Math.max(1, slot.maxSteps)
-  if (!jump) sfx(SFX.hop, 0.4)
+  if (!jump && !inHarbor(cell.i, cell.j)) sfx(SFX.hop, 0.4) // the raft is silent practice
   lastI = cell.i
   lastJ = cell.j
   movePlayerTo({
