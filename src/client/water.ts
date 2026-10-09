@@ -1,5 +1,6 @@
 import {
   ColliderLayer,
+  Entity,
   Material,
   MaterialTransparencyMode,
   MeshCollider,
@@ -12,7 +13,7 @@ import {
 } from '@dcl/sdk/ecs'
 import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
-import { GRID, CELL, WATER_Y } from '../shared/config'
+import { CELL, CENTER_CELL, GRID, VIEW_CELLS, WATER_Y, cellCenter } from '../shared/config'
 
 const WATER_TEXTURE = 'assets/scene/water/water-tile-v2.png'
 const WATER_BUMP_TEXTURE = 'assets/scene/water/water-bump.png'
@@ -44,8 +45,7 @@ export function waterScrollSystem(dt: number): void {
   }
 }
 
-// Tiled PNG plane with UV drift. Centered on (cx, cz); the ocean is bigger
-// than the board so the arena reads as endless.
+// Tiled PNG plane with UV drift. Centered on (cx, cz), covering the board.
 export function createWaterFloor(size: number, y: number, cx: number, cz: number) {
   const tileCount = Math.max(1, Math.round(size / 16))
 
@@ -94,27 +94,119 @@ export function createWaterFloor(size: number, y: number, cx: number, cz: number
   })
 }
 
-// Visible board grid: glowing strips floating above the water surface.
-// Opaque and thick: alpha blending against the scrolling water makes thin
-// translucent lines flicker and break apart.
-export function createGridLines(): void {
-  const size = GRID * CELL
-  for (let k = 0; k <= GRID; k++) {
-    for (const vertical of [true, false]) {
-      const line = engine.addEntity()
-      Transform.create(line, {
-        position: vertical
-          ? Vector3.create(k * CELL, WATER_Y + 0.22, size / 2)
-          : Vector3.create(size / 2, WATER_Y + 0.22, k * CELL),
-        scale: vertical ? Vector3.create(0.2, 0.12, size) : Vector3.create(size, 0.12, 0.2)
-      })
-      MeshRenderer.setBox(line)
-      Material.setPbrMaterial(line, {
-        albedoColor: Color4.create(0.2, 0.5, 0.7, 1),
-        emissiveColor: Color3.create(0.15, 0.4, 0.6),
-        emissiveIntensity: 0.8,
+// Visible board grid, only around the player: a window of glowing strips
+// that slides with you cell by cell, clipped at the board edge. Opaque and
+// thick: alpha blending against the scrolling water makes thin translucent
+// lines flicker and break apart.
+const LINES = 2 * VIEW_CELLS + 2 // per axis
+const gridLines: { e: Entity; vertical: boolean; k: number }[] = []
+let windowI = -1
+let windowJ = -1
+
+export function createGridWindow(): void {
+  for (const vertical of [true, false]) {
+    for (let k = 0; k < LINES; k++) {
+      const e = engine.addEntity()
+      Transform.create(e, { scale: Vector3.Zero() })
+      MeshRenderer.setBox(e)
+      Material.setPbrMaterial(e, {
+        albedoColor: Color4.create(0.16, 0.38, 0.55, 1),
+        emissiveColor: Color3.create(0.12, 0.32, 0.5),
+        emissiveIntensity: 0.45,
         castShadows: false
       })
+      gridLines.push({ e, vertical, k })
     }
+  }
+}
+
+export function gridWindowSystem(ci: number, cj: number): void {
+  if (ci === windowI && cj === windowJ) return
+  windowI = ci
+  windowJ = cj
+  // Cell-boundary coordinates (in cells) covered by the window, clipped.
+  const i0 = Math.max(0, ci - VIEW_CELLS)
+  const i1 = Math.min(GRID, ci + VIEW_CELLS + 1)
+  const j0 = Math.max(0, cj - VIEW_CELLS)
+  const j1 = Math.min(GRID, cj + VIEW_CELLS + 1)
+  for (const line of gridLines) {
+    const t = Transform.getMutable(line.e)
+    const at = (line.vertical ? ci : cj) - VIEW_CELLS + line.k
+    const lo = line.vertical ? i0 : j0
+    const hi = line.vertical ? i1 : j1
+    if (at < lo || at > hi) {
+      t.scale = Vector3.Zero()
+      continue
+    }
+    if (line.vertical) {
+      t.position = Vector3.create(at * CELL, WATER_Y + 0.22, ((j0 + j1) / 2) * CELL)
+      t.scale = Vector3.create(0.14, 0.1, (j1 - j0) * CELL)
+    } else {
+      t.position = Vector3.create(((i0 + i1) / 2) * CELL, WATER_Y + 0.22, at * CELL)
+      t.scale = Vector3.create((i1 - i0) * CELL, 0.1, 0.14)
+    }
+  }
+}
+
+// Safe harbor at the spawn: pale water and four buoys. Sharks never enter.
+export function createHarbor(radius: number): void {
+  const side = (2 * radius + 1) * CELL
+  const c = cellCenter(CENTER_CELL)
+  const patch = engine.addEntity()
+  Transform.create(patch, {
+    position: Vector3.create(c, WATER_Y + 0.04, c),
+    scale: Vector3.create(side, 0.04, side)
+  })
+  MeshRenderer.setBox(patch)
+  Material.setPbrMaterial(patch, {
+    albedoColor: Color4.create(0.5, 1, 0.85, 0.3),
+    emissiveColor: Color3.create(0.2, 0.6, 0.5),
+    emissiveIntensity: 0.4,
+    transparencyMode: MaterialTransparencyMode.MTM_ALPHA_BLEND,
+    castShadows: false
+  })
+  const h = side / 2
+  for (const [dx, dz] of [
+    [-h, -h],
+    [h, -h],
+    [-h, h],
+    [h, h]
+  ]) {
+    const buoy = engine.addEntity()
+    Transform.create(buoy, {
+      position: Vector3.create(c + dx, WATER_Y + 0.4, c + dz),
+      scale: Vector3.create(0.8, 0.9, 0.8)
+    })
+    MeshRenderer.setCylinder(buoy)
+    Material.setPbrMaterial(buoy, {
+      albedoColor: Color4.fromHexString('#FF7A1AFF'),
+      emissiveColor: Color3.fromHexString('#AA4400'),
+      emissiveIntensity: 0.5
+    })
+  }
+}
+
+// Shark net around the whole board: the end of the endless ocean.
+export function createBoardEdge(): void {
+  const size = GRID * CELL
+  const t = 0.3
+  for (const [x, z, sx, sz] of [
+    [t, size / 2, t, size],
+    [size - t, size / 2, t, size],
+    [size / 2, t, size, t],
+    [size / 2, size - t, size, t]
+  ]) {
+    const net = engine.addEntity()
+    Transform.create(net, {
+      position: Vector3.create(x, WATER_Y + 0.35, z),
+      scale: Vector3.create(sx, 0.7, sz)
+    })
+    MeshRenderer.setBox(net)
+    Material.setPbrMaterial(net, {
+      albedoColor: Color4.create(0.9, 0.15, 0.1, 1),
+      emissiveColor: Color3.create(0.6, 0.05, 0.02),
+      emissiveIntensity: 0.6,
+      castShadows: false
+    })
   }
 }

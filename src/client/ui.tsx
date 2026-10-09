@@ -1,205 +1,508 @@
 import { engine } from '@dcl/sdk/ecs'
-import ReactEcs, { Button, Label, ReactEcsRenderer, UiEntity } from '@dcl/sdk/react-ecs'
+import { Color4 } from '@dcl/sdk/math'
+import ReactEcs, { Label, ReactEcsRenderer, UiEntity } from '@dcl/sdk/react-ecs'
 
-import { GameState, PlayerSlot } from '../shared/components'
+import { Pickup, PlayerSlot } from '../shared/components'
+import { ATTACK_COOLDOWN, CENTER_CELL, HARBOR_RADIUS, PLAYERS_TIME, SHARKS_TIME, inHarbor, tierOf } from '../shared/config'
 import { room } from '../shared/messages'
-import { gamePhase, mySlot } from './render'
+import { gameState, myCellInDanger, mySlot, phaseElapsed } from './render'
+
+// HUD for a 1600×720 mobile canvas, inside the interactable area (clear of
+// the Explorer's own left-hand controls). Layout:
+//   top-left stats · top-center turn pill · top-right radar
+//   bottom-left d-pad · bottom-right fish slap
+
+// Bumped manually per deploy to spot stale cached bundles on the phone.
+export const BUILD_TAG = 'ui2'
 
 // Connection watchdog: without server heartbeats, there is no multiplayer
 // server (or the room is broken) — block with an error modal.
 let noServerElapsed = 0
 let serverConnected = false
+let uiClock = 0
 room.onMessage('ping', () => {
-  if (!serverConnected) console.log('[client] first ping received')
+  if (!serverConnected) console.log('[client] first ping received', BUILD_TAG)
   serverConnected = true
 })
 engine.addSystem((dt) => {
-  if (serverConnected) return
-  noServerElapsed += dt
+  uiClock += dt
+  if (!serverConnected) noServerElapsed += dt
 })
 
 let savedScore = false
 let wasDead = false
-let tapsSent = 0 // debug
+let lastSlapAt = -999
+let pressedKey = ''
+let pressedAt = -999
 
-function sendMove(di: number, dj: number) {
-  tapsSent++
-  room.send('move', { di, dj })
+function press(key: string) {
+  pressedKey = key
+  pressedAt = uiClock
 }
 
-// Bumped manually per deploy to spot stale cached bundles on the phone.
-export const BUILD_TAG = 'hb2'
-
-function debugLine(): string {
-  let slots = 0
-  for (const [_e] of engine.getEntitiesWith(PlayerSlot)) slots++
-  const slot = mySlot()
-  return `${BUILD_TAG} slots:${slots} cell:${slot ? `${slot.cellI},${slot.cellJ}` : '-'} taps:${tapsSent}`
+function isPressed(key: string): boolean {
+  return pressedKey === key && uiClock - pressedAt < 0.15
 }
 
 export function setupUi() {
   ReactEcsRenderer.setUiRenderer(uiComponent, { screenInset: 'interactable' })
 }
 
-const FONT_TITLE = 34
-const FONT_BIG = 28
-const FONT_MED = 20
+// --- palette ---
+const rgba = (r: number, g: number, b: number, a = 1) => Color4.create(r, g, b, a)
+const INK = rgba(0.02, 0.06, 0.12, 0.84)
+const INK_SOFT = rgba(0.02, 0.06, 0.12, 0.6)
+const EDGE = rgba(0.45, 0.85, 1, 0.35)
+const WHITE = rgba(1, 1, 1, 1)
+const MUTED = rgba(0.72, 0.84, 0.95, 0.75)
+const AQUA = rgba(0.36, 0.9, 0.92, 1)
+const MINT = rgba(0.38, 0.96, 0.62, 1)
+const GOLD = rgba(1, 0.84, 0.32, 1)
+const CORAL = rgba(1, 0.36, 0.34, 1)
+const CORAL_DEEP = rgba(0.55, 0.06, 0.08, 0.9)
+const CLEAR = rgba(0, 0, 0, 0)
 
-const PANEL_BG = { r: 0.02, g: 0.05, b: 0.1, a: 0.75 }
-const ACCENT = { r: 0.4, g: 0.8, b: 1, a: 1 }
-const DANGER = { r: 1, g: 0.3, b: 0.3, a: 1 }
-const OK = { r: 0.4, g: 1, b: 0.5, a: 1 }
+const ICON = {
+  coin: 'assets/images/ui/score-coin.png',
+  buoy: 'assets/images/ui/life-buoy.png',
+  fin: 'assets/images/ui/shark-fin-great-white.png',
+  raft: 'assets/images/ui/player-raft.png',
+  fish: 'assets/images/ui/bait-fish.png',
+  head: 'assets/images/ui/shark-head-bite.png',
+  trophy: 'assets/images/ui/survivor-trophy.png',
+  up: 'assets/images/ui/arrow-up.png',
+  down: 'assets/images/ui/arrow-down.png',
+  left: 'assets/images/ui/arrow-left.png',
+  right: 'assets/images/ui/arrow-right.png'
+}
 
-const DPAD_BTN = 96
-const DPAD_GAP = 10
-const DPAD_SIZE = DPAD_BTN * 3 + DPAD_GAP * 2
-
-function dpadButton(label: string, col: number, row: number, di: number, dj: number) {
+function Icon(props: { src: string; size: number; margin?: { left?: number; right?: number } }) {
   return (
-    <Button
-      value={label}
-      fontSize={40}
-      color={ACCENT}
-      onMouseDown={() => sendMove(di, dj)}
-      uiBackground={{ color: PANEL_BG }}
-      uiTransform={{
-        width: DPAD_BTN,
-        height: DPAD_BTN,
-        positionType: 'absolute',
-        position: { left: col * (DPAD_BTN + DPAD_GAP), top: row * (DPAD_BTN + DPAD_GAP) }
-      }}
+    <UiEntity
+      uiTransform={{ width: props.size, height: props.size, flexShrink: 0, margin: props.margin }}
+      uiBackground={{ textureMode: 'stretch', texture: { src: props.src } }}
     />
   )
 }
 
-const uiComponent = () => {
-  const slot = mySlot()
-  const phase = gamePhase()
-  const playersTurn = phase === 'players'
-  const phaseLabel = playersTurn ? '— MOVE —' : phase === 'sharks-move' ? '— SHARKS MOVE —' : '— ATTACK! —'
-  const dead = slot?.dead ?? false
+// --- top-left: score, lives, depth ---
+function Stats(props: { score: number; lives: number; harbor: boolean; tier: number }) {
+  const depthColor = props.harbor ? MINT : props.tier >= 3 ? CORAL : props.tier >= 1 ? GOLD : AQUA
+  return (
+    <UiEntity
+      uiTransform={{
+        positionType: 'absolute',
+        position: { top: 16, left: 30 },
+        flexDirection: 'column',
+        alignItems: 'flex-start'
+      }}
+    >
+      <UiEntity
+        uiTransform={{
+          height: 64,
+          flexDirection: 'row',
+          alignItems: 'center',
+          padding: { left: 10, right: 18 },
+          borderRadius: 32,
+          borderWidth: 2,
+          borderColor: EDGE
+        }}
+        uiBackground={{ color: INK }}
+      >
+        <Icon src={ICON.coin} size={46} />
+        <Label value={`${props.score}`} fontSize={30} color={GOLD} textAlign="middle-left" uiTransform={{ width: 84, height: 50, margin: { left: 8 } }} />
+        <Icon src={ICON.buoy} size={38} margin={{ left: 6 }} />
+        <Label value={`x${props.lives}`} fontSize={26} color={WHITE} textAlign="middle-left" uiTransform={{ width: 52, height: 50, margin: { left: 6 } }} />
+      </UiEntity>
+      <UiEntity
+        uiTransform={{
+          height: 34,
+          margin: { top: 8, left: 6 },
+          flexDirection: 'row',
+          alignItems: 'center',
+          padding: { left: 6, right: 14 },
+          borderRadius: 17,
+          borderWidth: 2,
+          borderColor: depthColor
+        }}
+        uiBackground={{ color: INK_SOFT }}
+      >
+        <Icon src={props.harbor ? ICON.raft : ICON.fin} size={26} />
+        <Label
+          value={props.harbor ? 'SAFE HARBOR' : `DEPTH ${props.tier + 1}`}
+          fontSize={16}
+          color={depthColor}
+          textAlign="middle-left"
+          uiTransform={{ width: 120, height: 30, margin: { left: 6 } }}
+        />
+      </UiEntity>
+    </UiEntity>
+  )
+}
 
-  if (dead) savedScore = wasDead ? savedScore : false
-  if (!dead && wasDead) savedScore = false
-  wasDead = dead
-
-  // No server: block with an error modal.
-  if (!serverConnected && noServerElapsed > 12) {
-    return (
-      <UiEntity uiTransform={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }} uiBackground={{ color: { r: 0, g: 0, b: 0, a: 0.9 } }}>
-        <UiEntity uiTransform={{ width: 420, height: 240, alignItems: 'center', padding: 20 }} uiBackground={{ color: { r: 0.15, g: 0, b: 0, a: 0.95 } }}>
-          <Label value="CONNECTION ERROR" fontSize={FONT_TITLE} color={DANGER} textAlign="middle-center" uiTransform={{ width: '100%', height: 60 }} />
-          <Label
-            value="No multiplayer server.\nRe-enter the scene to retry."
-            fontSize={FONT_MED}
-            textAlign="middle-center"
-            uiTransform={{ width: '100%', height: 100 }}
+// --- top-center: whose turn, time left, move state ---
+function TurnPill(props: { playersTurn: boolean; remaining: number; status: string; statusColor: Color4 }) {
+  const color = props.playersTurn ? MINT : CORAL
+  const W = 300
+  return (
+    <UiEntity
+      uiTransform={{
+        positionType: 'absolute',
+        position: { top: 16, left: '50%' },
+        margin: { left: -W / 2 },
+        width: W,
+        flexDirection: 'column',
+        alignItems: 'center'
+      }}
+    >
+      <UiEntity
+        uiTransform={{
+          width: W,
+          height: 72,
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: 24,
+          borderWidth: 2,
+          borderColor: props.playersTurn ? EDGE : CORAL
+        }}
+        uiBackground={{ color: props.playersTurn ? INK : CORAL_DEEP }}
+      >
+        <UiEntity uiTransform={{ height: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+          {!props.playersTurn && <Icon src={ICON.fin} size={34} margin={{ right: 8 }} />}
+          <Label value={props.playersTurn ? 'YOUR TURN' : 'SHARKS!'} fontSize={30} color={props.playersTurn ? color : WHITE} textAlign="middle-center" uiTransform={{ width: 190, height: 40 }} />
+        </UiEntity>
+        <UiEntity uiTransform={{ width: W - 48, height: 8, margin: { top: 6 }, borderRadius: 4 }} uiBackground={{ color: rgba(1, 1, 1, 0.12) }}>
+          <UiEntity
+            uiTransform={{ width: Math.max(8, Math.round((W - 48) * props.remaining)), height: 8, borderRadius: 4 }}
+            uiBackground={{ color: props.playersTurn ? color : WHITE }}
           />
         </UiEntity>
       </UiEntity>
+      <Label value={props.status} fontSize={16} color={props.statusColor} textAlign="middle-center" uiTransform={{ width: W, height: 26, margin: { top: 4 } }} />
+    </UiEntity>
+  )
+}
+
+function LaneWarning() {
+  return (
+    <UiEntity
+      uiTransform={{
+        positionType: 'absolute',
+        position: { top: 136, left: '50%' },
+        margin: { left: -170 },
+        width: 340,
+        height: 48,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 24,
+        borderWidth: 2,
+        borderColor: CORAL
+      }}
+      uiBackground={{ color: CORAL_DEEP }}
+    >
+      <Label value="YOU'RE ON A SHARK LANE" fontSize={20} color={WHITE} textAlign="middle-center" />
+    </UiEntity>
+  )
+}
+
+// --- top-right: radar of coins, life buoys and other players ---
+const RADAR = 168 // px
+const RADAR_CELLS = 16 // cells from center to edge
+
+function Dot(props: { key?: string; di: number; dj: number; size: number; color: Color4; clamp?: boolean }) {
+  let x = props.di / RADAR_CELLS
+  let y = props.dj / RADAR_CELLS
+  if (props.clamp) {
+    // Off-radar players stick to the rim, pointing their way.
+    const m = Math.max(Math.abs(x), Math.abs(y))
+    if (m > 0.92) {
+      x = (x / m) * 0.92
+      y = (y / m) * 0.92
+    }
+  } else if (Math.abs(x) > 1 || Math.abs(y) > 1) {
+    return null
+  }
+  const half = RADAR / 2
+  return (
+    <UiEntity
+      uiTransform={{
+        positionType: 'absolute',
+        position: { left: half + x * half - props.size / 2, top: half - y * half - props.size / 2 },
+        width: props.size,
+        height: props.size,
+        borderRadius: props.size / 2
+      }}
+      uiBackground={{ color: props.color }}
+    />
+  )
+}
+
+function Radar(props: { ci: number; cj: number; myAddress: string }) {
+  const dots: any[] = []
+  const cellPx = RADAR / (2 * RADAR_CELLS)
+
+  // Harbor square, when in range.
+  const hi = CENTER_CELL - props.ci
+  const hj = CENTER_CELL - props.cj
+  const hs = (2 * HARBOR_RADIUS + 1) * cellPx
+  if (Math.abs(hi) < RADAR_CELLS + HARBOR_RADIUS && Math.abs(hj) < RADAR_CELLS + HARBOR_RADIUS) {
+    dots.push(
+      <UiEntity
+        key="harbor"
+        uiTransform={{
+          positionType: 'absolute',
+          position: { left: RADAR / 2 + hi * cellPx - hs / 2, top: RADAR / 2 - hj * cellPx - hs / 2 },
+          width: hs,
+          height: hs,
+          borderRadius: 4
+        }}
+        uiBackground={{ color: rgba(0.38, 0.96, 0.62, 0.25) }}
+      />
     )
   }
 
+  for (const [e, p] of engine.getEntitiesWith(Pickup)) {
+    if (!p.active) continue
+    dots.push(
+      <Dot key={`p${e}`} di={p.cellI - props.ci} dj={p.cellJ - props.cj} size={p.kind === 'coin' ? 8 : 10} color={p.kind === 'coin' ? GOLD : CORAL} />
+    )
+  }
+  for (const [e, s] of engine.getEntitiesWith(PlayerSlot)) {
+    if (s.dead || s.address === props.myAddress) continue
+    dots.push(<Dot key={`s${e}`} di={s.cellI - props.ci} dj={s.cellJ - props.cj} size={11} color={WHITE} clamp />)
+  }
+
   return (
-    <UiEntity uiTransform={{ width: '100%', height: '100%' }} uiBackground={{ color: { r: 0, g: 0, b: 0, a: 0 } }}>
-      {/* Score + turn banner, top center */}
+    <UiEntity
+      uiTransform={{
+        positionType: 'absolute',
+        position: { top: 16, right: 16 },
+        width: RADAR + 4,
+        height: RADAR + 4,
+        padding: 2,
+        borderRadius: 20,
+        borderWidth: 2,
+        borderColor: EDGE
+      }}
+      uiBackground={{ color: INK }}
+    >
+      <UiEntity uiTransform={{ width: RADAR, height: RADAR, overflow: 'hidden', borderRadius: 18 }}>
+        {/* faint crosshair */}
+        <UiEntity uiTransform={{ positionType: 'absolute', position: { left: RADAR / 2 - 1, top: 0 }, width: 2, height: RADAR }} uiBackground={{ color: rgba(0.45, 0.85, 1, 0.12) }} />
+        <UiEntity uiTransform={{ positionType: 'absolute', position: { left: 0, top: RADAR / 2 - 1 }, width: RADAR, height: 2 }} uiBackground={{ color: rgba(0.45, 0.85, 1, 0.12) }} />
+        {dots}
+        <Dot key="me" di={0} dj={0} size={14} color={AQUA} />
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
+// --- bottom-left: d-pad ---
+const PAD = 92
+const PAD_GAP = 6
+
+function PadButton(props: { dir: string; icon: string; col: number; row: number; di: number; dj: number; enabled: boolean }) {
+  const pressed = isPressed(props.dir)
+  return (
+    <UiEntity
+      uiTransform={{
+        positionType: 'absolute',
+        position: { left: props.col * (PAD + PAD_GAP), top: props.row * (PAD + PAD_GAP) },
+        width: PAD,
+        height: PAD,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: PAD / 2,
+        borderWidth: 2,
+        borderColor: props.enabled ? AQUA : EDGE,
+        opacity: props.enabled ? 1 : 0.45
+      }}
+      uiBackground={{ color: pressed ? rgba(0.36, 0.9, 0.92, 0.55) : INK }}
+      onMouseDown={() => {
+        press(props.dir)
+        room.send('move', { di: props.di, dj: props.dj })
+      }}
+    >
+      <Icon src={props.icon} size={44} />
+    </UiEntity>
+  )
+}
+
+function DPad(props: { enabled: boolean }) {
+  const size = PAD * 3 + PAD_GAP * 2
+  return (
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { left: 20, bottom: 20 }, width: size, height: size }}>
+      <PadButton dir="up" icon={ICON.up} col={1} row={0} di={0} dj={1} enabled={props.enabled} />
+      <PadButton dir="left" icon={ICON.left} col={0} row={1} di={-1} dj={0} enabled={props.enabled} />
+      <PadButton dir="right" icon={ICON.right} col={2} row={1} di={1} dj={0} enabled={props.enabled} />
+      <PadButton dir="down" icon={ICON.down} col={1} row={2} di={0} dj={-1} enabled={props.enabled} />
+    </UiEntity>
+  )
+}
+
+// --- bottom-right: fish slap (stuns players next to you) ---
+function SlapButton(props: { enabled: boolean }) {
+  const cooling = uiClock - lastSlapAt < ATTACK_COOLDOWN
+  const ready = props.enabled && !cooling
+  const SIZE = 132
+  return (
+    <UiEntity
+      uiTransform={{
+        positionType: 'absolute',
+        position: { right: 24, bottom: 24 },
+        flexDirection: 'column',
+        alignItems: 'center'
+      }}
+    >
       <UiEntity
         uiTransform={{
-          width: 360,
-          height: 150,
-          positionType: 'absolute',
-          position: { top: '4%', left: '50%' },
-          margin: { left: -180 },
+          width: SIZE,
+          height: SIZE,
           alignItems: 'center',
-          padding: 8
+          justifyContent: 'center',
+          borderRadius: SIZE / 2,
+          borderWidth: 3,
+          borderColor: ready ? GOLD : EDGE,
+          opacity: ready ? 1 : 0.45
         }}
-        uiBackground={{ color: PANEL_BG }}
+        uiBackground={{ color: isPressed('slap') ? rgba(1, 0.84, 0.32, 0.45) : INK }}
+        onMouseDown={() => {
+          if (!ready) return
+          press('slap')
+          lastSlapAt = uiClock
+          room.send('attack', {})
+        }}
       >
-        <Label
-          value={`SCORE ${slot?.score ?? 0}    LIVES ${slot?.extraLives ?? 0}${slot?.stunned ? '    STUNNED' : ''}`}
-          fontSize={FONT_MED}
-          textAlign="middle-center"
-          uiTransform={{ width: '100%', height: 40 }}
-        />
-        <Label
-          value={phaseLabel}
-          fontSize={FONT_BIG}
-          color={playersTurn ? OK : DANGER}
-          textAlign="middle-center"
-          uiTransform={{ width: '100%', height: 50 }}
-        />
-        {/* debug: quita cuando ande */}
-        <Label
-          value={debugLine()}
-          fontSize={12}
-          textAlign="middle-center"
-          uiTransform={{ width: '100%', height: 30 }}
-        />
+        <Icon src={ICON.fish} size={88} />
       </UiEntity>
+      <Label value={cooling ? `${Math.ceil(ATTACK_COOLDOWN - (uiClock - lastSlapAt))}` : 'SLAP'} fontSize={18} color={ready ? GOLD : MUTED} textAlign="middle-center" uiTransform={{ width: SIZE, height: 26, margin: { top: 4 } }} />
+    </UiEntity>
+  )
+}
 
-      {/* D-pad, bottom left */}
+// --- death card ---
+function Button(props: { label: string; onPress: () => void; filled: boolean; icon?: string; disabled?: boolean; width: number; height: number }) {
+  return (
+    <UiEntity
+      uiTransform={{
+        width: props.width,
+        height: props.height,
+        margin: { top: 12 },
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: props.height / 2,
+        borderWidth: 2,
+        borderColor: props.filled ? MINT : EDGE,
+        opacity: props.disabled ? 0.5 : 1
+      }}
+      uiBackground={{ color: props.filled ? MINT : rgba(1, 1, 1, 0.06) }}
+      onMouseDown={() => {
+        if (!props.disabled) props.onPress()
+      }}
+    >
+      {props.icon && <Icon src={props.icon} size={34} margin={{ right: 8 }} />}
+      <Label value={props.label} fontSize={props.filled ? 28 : 20} color={props.filled ? rgba(0.02, 0.1, 0.12, 1) : WHITE} textAlign="middle-center" />
+    </UiEntity>
+  )
+}
+
+function DeathCard(props: { score: number }) {
+  return (
+    <UiEntity
+      uiTransform={{ positionType: 'absolute', position: { top: 0, left: 0 }, width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}
+    >
       <UiEntity
         uiTransform={{
-          width: DPAD_SIZE,
-          height: DPAD_SIZE,
-          positionType: 'absolute',
-          position: { left: '4%', bottom: '5%' }
+          width: 440,
+          flexDirection: 'column',
+          alignItems: 'center',
+          padding: { top: 18, bottom: 22, left: 24, right: 24 },
+          borderRadius: 28,
+          borderWidth: 2,
+          borderColor: CORAL
         }}
-        uiBackground={{ color: { r: 0, g: 0, b: 0, a: 0 } }}
+        uiBackground={{ color: rgba(0.06, 0.03, 0.06, 0.94) }}
       >
-        {dpadButton('▲', 1, 0, 0, 1)}
-        {dpadButton('◀', 0, 1, -1, 0)}
-        {dpadButton('▶', 2, 1, 1, 0)}
-        {dpadButton('▼', 1, 2, 0, -1)}
-      </UiEntity>
-
-      {/* Attack, bottom right */}
-      <Button
-        value="👊"
-        fontSize={52}
-        onMouseDown={() => room.send('attack', {})}
-        uiBackground={{ color: PANEL_BG }}
-        uiTransform={{
-          width: 130,
-          height: 130,
-          positionType: 'absolute',
-          position: { right: '5%', bottom: '8%' }
-        }}
-      />
-
-      {/* Death overlay */}
-      {dead && (
-        <UiEntity
-          uiTransform={{
-            width: 400,
-            height: 320,
-            positionType: 'absolute',
-            position: { top: '25%', left: '50%' },
-            margin: { left: -200 },
-            alignItems: 'center',
-            padding: 16
-          }}
-          uiBackground={{ color: { r: 0.1, g: 0, b: 0, a: 0.9 } }}
-        >
-          <Label value="A SHARK GOT YOU" fontSize={FONT_TITLE} color={DANGER} textAlign="middle-center" uiTransform={{ width: '100%', height: 60 }} />
-          <Button
-            value="RESPAWN"
-            fontSize={FONT_BIG}
-            onMouseDown={() => room.send('respawn', {})}
-            uiTransform={{ width: 260, height: 90 }}
-          />
-          <Button
-            value={savedScore ? 'SAVED ✓' : 'SAVE SCORE'}
-            fontSize={FONT_MED}
-            disabled={savedScore}
-            onMouseDown={() => {
-              room.send('saveScore', {})
-              savedScore = true
-            }}
-            uiTransform={{ width: 260, height: 60, margin: { top: 12 } }}
-          />
+        <Icon src={ICON.head} size={140} />
+        <Label value="CHOMPED!" fontSize={44} color={CORAL} textAlign="middle-center" uiTransform={{ height: 54 }} />
+        <UiEntity uiTransform={{ height: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+          <Icon src={ICON.coin} size={36} margin={{ right: 8 }} />
+          <Label value={`${props.score}`} fontSize={30} color={GOLD} textAlign="middle-left" />
         </UiEntity>
-      )}
+        <Button label="SWIM AGAIN" filled width={320} height={72} onPress={() => room.send('respawn', {})} />
+        <Button
+          label={savedScore ? 'SCORE SAVED' : 'SAVE SCORE'}
+          filled={false}
+          icon={ICON.trophy}
+          disabled={savedScore}
+          width={320}
+          height={56}
+          onPress={() => {
+            room.send('saveScore', {})
+            savedScore = true
+          }}
+        />
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
+function ConnectionError() {
+  return (
+    <UiEntity uiTransform={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }} uiBackground={{ color: rgba(0, 0, 0, 0.85) }}>
+      <UiEntity
+        uiTransform={{ width: 440, flexDirection: 'column', alignItems: 'center', padding: 24, borderRadius: 28, borderWidth: 2, borderColor: CORAL }}
+        uiBackground={{ color: rgba(0.06, 0.03, 0.06, 0.94) }}
+      >
+        <Label value="LOST AT SEA" fontSize={36} color={CORAL} textAlign="middle-center" uiTransform={{ height: 50 }} />
+        <Label value={'No multiplayer server.\nRe-enter the scene to retry.'} fontSize={20} color={MUTED} textAlign="middle-center" uiTransform={{ width: '100%', height: 70 }} />
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
+const uiComponent = () => {
+  if (!serverConnected && noServerElapsed > 12) return <ConnectionError />
+
+  const slot = mySlot()
+  const { phase } = gameState()
+  const playersTurn = phase === 'players'
+  const dead = slot?.dead ?? false
+  const stunned = slot?.stunned ?? false
+  const movesLeft = slot?.movesLeft ?? 0
+  const canMove = playersTurn && !dead && !stunned && movesLeft > 0
+  const harbor = slot ? inHarbor(slot.cellI, slot.cellJ) : true
+  const tier = slot ? tierOf(slot.cellI, slot.cellJ) : 0
+  const remaining = Math.max(0, 1 - phaseElapsed() / (playersTurn ? PLAYERS_TIME : SHARKS_TIME))
+
+  if (!dead && wasDead) savedScore = false
+  wasDead = dead
+
+  let status = 'HOLD STILL...'
+  let statusColor = MUTED
+  if (playersTurn) {
+    if (stunned) {
+      status = 'SLAPPED - FROZEN'
+      statusColor = CORAL
+    } else if (canMove) {
+      status = 'ONE HOP - PICK A WAY'
+      statusColor = MINT
+    } else {
+      status = 'MOVED'
+    }
+  }
+
+  return (
+    <UiEntity uiTransform={{ width: '100%', height: '100%' }} uiBackground={{ color: CLEAR }}>
+      <Stats score={slot?.score ?? 0} lives={slot?.extraLives ?? 0} harbor={harbor} tier={tier} />
+      <TurnPill playersTurn={playersTurn} remaining={remaining} status={status} statusColor={statusColor} />
+      {playersTurn && !dead && myCellInDanger() && <LaneWarning />}
+      {slot && <Radar ci={slot.cellI} cj={slot.cellJ} myAddress={slot.address} />}
+      {!dead && <DPad enabled={canMove} />}
+      {!dead && <SlapButton enabled={!stunned} />}
+      {dead && <DeathCard score={slot?.score ?? 0} />}
     </UiEntity>
   )
 }

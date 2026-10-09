@@ -31,3 +31,10 @@
 - Mapa que crece con cantidad de jugadores + más tiburones (sensación infinita).
 - Scoreboard visible in-world (hoy solo se guarda, no se muestra).
 - Guests sin wallet: slots usan address; verificar comportamiento con guest.
+
+## 2026-10-09 — Global turns + endless 50×50 board (Kuruk)
+
+- Board = whole scene: 200×200 cells of 4 m (50×50 parcels). Sharks and
+  pickups appear around players as they swim; the 800 m edge is the limit.
+- Global turns: players 2 s, then sharks 0.5 s with nobody moving.
+- Movement stays grid d-pad (chosen over free joystick + freeze).

@@ -2521,26 +2521,26 @@
   },
   "spawnPoints": [
     {
-      "name": "spawn1",
+      "name": "harbor",
       "default": true,
       "position": {
         "x": [
-          14,
-          18
+          401,
+          403
         ],
         "y": [
           0,
           0
         ],
         "z": [
-          14,
-          18
+          401,
+          403
         ]
       },
       "cameraTarget": {
-        "x": 16,
+        "x": 402,
         "y": 1,
-        "z": 16
+        "z": 420
       }
     }
   ],

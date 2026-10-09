@@ -3,19 +3,25 @@ import { Schemas, engine } from '@dcl/sdk/ecs'
 // All of these are server-authoritative. The server creates the entities,
 // syncs them with syncEntity(), and clients never write to them.
 
+// Pooled: inactive sharks are hidden and wait to surface near a player.
 export const Shark = engine.defineComponent('shark', {
-  phase: Schemas.String, // 'move' | 'telegraph' | 'attack'
+  active: Schemas.Boolean,
+  phase: Schemas.String, // 'plan' (lane shown) | 'lunge' (dashing along it)
+  cellI: Schemas.Int,
+  cellJ: Schemas.Int,
   dirX: Schemas.Int,
   dirZ: Schemas.Int,
-  cellI: Schemas.Int,
-  cellJ: Schemas.Int
+  len: Schemas.Int, // lane cells ahead; the shark's own cell is dangerous too
+  hunting: Schemas.Boolean
 })
 
+// Pooled like sharks. value is the coin's points (depth-scaled).
 export const Pickup = engine.defineComponent('pickup', {
+  active: Schemas.Boolean,
   kind: Schemas.String, // 'coin' | 'life'
   cellI: Schemas.Int,
   cellJ: Schemas.Int,
-  taken: Schemas.Boolean
+  value: Schemas.Int
 })
 
 export const PlayerSlot = engine.defineComponent('player-slot', {
@@ -23,6 +29,7 @@ export const PlayerSlot = engine.defineComponent('player-slot', {
   name: Schemas.String,
   cellI: Schemas.Int,
   cellJ: Schemas.Int,
+  movesLeft: Schemas.Int,
   score: Schemas.Int,
   extraLives: Schemas.Int,
   dead: Schemas.Boolean,
@@ -30,5 +37,6 @@ export const PlayerSlot = engine.defineComponent('player-slot', {
 })
 
 export const GameState = engine.defineComponent('game-state', {
-  phase: Schemas.String // 'players' | 'sharks'
+  phase: Schemas.String, // 'players' | 'sharks'
+  turn: Schemas.Int
 })
