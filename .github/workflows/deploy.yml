@@ -1,0 +1,37 @@
+# Deploys the scene to our Decentraland World on every push to main.
+#
+# Requirements:
+#   - scene.json has worldConfiguration.name set to the World (e.g. "yourname.dcl.eth").
+#   - Repository secret DCL_PRIVATE_KEY: private key of a wallet that owns that NAME
+#     or was granted deploy permission on the World. Use a dedicated wallet.
+#     Set it in GitHub: Settings -> Secrets and variables -> Actions -> New repository secret,
+#     or from a terminal: gh secret set DCL_PRIVATE_KEY --repo dcl-regenesislabs/manu-kuruk-halloween-jam
+name: deploy-world
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-world
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run build
+      - name: Check World name is configured
+        run: node -e "const s=require('./scene.json'); if(!s.worldConfiguration||!s.worldConfiguration.name){console.error('scene.json is missing worldConfiguration.name');process.exit(1)}; console.log('World:', s.worldConfiguration.name)"
+      - name: Deploy to World
+        env:
+          DCL_PRIVATE_KEY: ${{ secrets.DCL_PRIVATE_KEY }}
+        run: |
+          if [ -z "$DCL_PRIVATE_KEY" ]; then echo "DCL_PRIVATE_KEY secret is not set"; exit 1; fi
+          npm run deploy -- --yes --skip-build --target-content https://worlds-content-server.decentraland.org
