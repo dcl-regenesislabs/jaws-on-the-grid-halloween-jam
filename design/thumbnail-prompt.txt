@@ -5,9 +5,9 @@ Created with the built-in image generation tool.
 Selected by the user as the scene thumbnail and referenced in scene.json.
 
 Artwork brief:
-Cinematic Jaws-inspired horror poster for a Decentraland multiplayer shark-survival game. A giant great white shark bursts from a dark ocean, with two frightened avatars, luminous cyan grid lines, distant fins, a tropical shore and moonlit storm clouds. Landscape composition in approximately the recommended 228:160 thumbnail ratio.
+Cinematic Jaws-inspired horror poster for a Decentraland multiplayer shark-survival game, closely following the user's movie-poster reference. An adult purple-haired female Decentraland-style avatar in a dark swimsuit swims across the surface. An enormous great white shark rises underwater directly beneath her, with open jaws and visible water between shark and swimmer. Off-white header, turquoise waterline with subtle cyan grid lines, deep blue underwater background and painted movie-poster texture. Landscape composition in approximately the recommended 228:160 thumbnail ratio.
 
 English lettering:
-JAWS: large, centered, distressed ivory horror lettering.
+JAWS: large, centered, solid red lettering on the off-white header.
 ON THE GRID: red second line.
 DECENTRALAND: white branding at the bottom.
