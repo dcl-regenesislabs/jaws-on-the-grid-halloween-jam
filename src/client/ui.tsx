@@ -5,8 +5,8 @@ import ReactEcs, { Label, ReactEcsRenderer, UiEntity } from '@dcl/sdk/react-ecs'
 import { Pickup, PlayerSlot } from '../shared/components'
 import { CENTER_CELL, HARBOR_RADIUS, PLAYERS_TIME, SHARKS_TIME, inHarbor, tierOf } from '../shared/config'
 import { room } from '../shared/messages'
-import { canMoveNow, canSlapNow, requestMove, requestSlap, slapCooldownLeft } from './input'
-import { gameState, myCell, myCellInDanger, mySlot, phaseElapsed } from './state'
+import { canPickNow, canSlapNow, requestPick, requestSlap, slapCooldownLeft } from './input'
+import { gameState, myCell, myPick, myTargetInDanger, mySlot, phaseElapsed } from './state'
 
 // HUD for a 1600×720 mobile canvas, inside the interactable area (clear of
 // the Explorer's own left-hand controls). Layout:
@@ -59,7 +59,7 @@ const movePad = () => {
   if (!slot || slot.dead) return null
   return (
     <UiEntity uiTransform={{ width: '100%', height: '100%' }}>
-      <DPad enabled={canMoveNow()} />
+      <DPad enabled={canPickNow()} />
     </UiEntity>
   )
 }
@@ -191,7 +191,7 @@ function TurnPill(props: { playersTurn: boolean; remaining: number; status: stri
       >
         <UiEntity uiTransform={{ height: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
           {!props.playersTurn && <Icon src={ICON.fin} size={34} margin={{ right: 8 }} />}
-          <Label value={props.playersTurn ? 'YOUR TURN' : 'SHARKS!'} fontSize={30} color={props.playersTurn ? color : WHITE} textAlign="middle-center" uiTransform={{ width: 190, height: 40 }} />
+          <Label value={props.playersTurn ? 'PICK A MOVE' : 'GO!'} fontSize={30} color={props.playersTurn ? color : WHITE} textAlign="middle-center" uiTransform={{ width: 200, height: 40 }} />
         </UiEntity>
         <UiEntity uiTransform={{ width: W - 48, height: 8, margin: { top: 6 }, borderRadius: 4 }} uiBackground={{ color: rgba(1, 1, 1, 0.12) }}>
           <UiEntity
@@ -222,7 +222,7 @@ function LaneWarning() {
       }}
       uiBackground={{ color: CORAL_DEEP }}
     >
-      <Label value="YOU'RE ON A SHARK LANE" fontSize={20} color={WHITE} textAlign="middle-center" />
+      <Label value="YOUR SPOT IS ON A SHARK LANE" fontSize={18} color={WHITE} textAlign="middle-center" />
     </UiEntity>
   )
 }
@@ -326,6 +326,8 @@ const DPAD_LEFT = 40
 
 function PadButton(props: { dir: string; icon: string; col: number; row: number; di: number; dj: number; enabled: boolean }) {
   const pressed = isPressed(props.dir)
+  const pick = myPick()
+  const picked = props.enabled && pick.di === props.di && pick.dj === props.dj
   return (
     <UiEntity
       uiTransform={{
@@ -336,14 +338,14 @@ function PadButton(props: { dir: string; icon: string; col: number; row: number;
         alignItems: 'center',
         justifyContent: 'center',
         borderRadius: PAD / 2,
-        borderWidth: 2,
-        borderColor: props.enabled ? AQUA : EDGE,
+        borderWidth: picked ? 4 : 2,
+        borderColor: picked ? GOLD : props.enabled ? AQUA : EDGE,
         opacity: props.enabled ? 1 : 0.45
       }}
-      uiBackground={{ color: pressed ? rgba(0.36, 0.9, 0.92, 0.55) : INK }}
+      uiBackground={{ color: picked ? rgba(1, 0.84, 0.32, 0.5) : pressed ? rgba(0.36, 0.9, 0.92, 0.55) : INK }}
       onMouseDown={() => {
         press(props.dir)
-        requestMove(props.di, props.dj)
+        requestPick(props.di, props.dj)
       }}
     >
       <Icon src={props.icon} size={44} />
@@ -493,7 +495,9 @@ const uiComponent = () => {
   const dead = slot?.dead ?? false
   const stunned = slot?.stunned ?? false
   const cell = myCell()
-  const canMove = canMoveNow()
+  const canPick = canPickNow()
+  const pick = myPick()
+  const staying = pick.di === 0 && pick.dj === 0
   const harbor = cell ? inHarbor(cell.i, cell.j) : true
   const tier = cell ? tierOf(cell.i, cell.j) : 0
   const remaining = Math.max(0, 1 - phaseElapsed() / (playersTurn ? PLAYERS_TIME : SHARKS_TIME))
@@ -501,7 +505,7 @@ const uiComponent = () => {
   if (!dead && wasDead) savedScore = false
   wasDead = dead
 
-  let status = 'HOLD STILL...'
+  let status = 'SWIM!'
   let statusColor = MUTED
   if (dead) {
     status = 'CHOMPED'
@@ -510,11 +514,12 @@ const uiComponent = () => {
     if (stunned) {
       status = 'SLAPPED - FROZEN'
       statusColor = CORAL
-    } else if (canMove) {
-      status = 'ONE HOP - PICK A WAY'
-      statusColor = MINT
+    } else if (staying) {
+      status = canPick ? 'TAP AN ARROW - OR STAY' : 'STAYING'
+      statusColor = canPick ? MINT : MUTED
     } else {
-      status = 'MOVED'
+      status = `GOING ${pick.dj > 0 ? 'UP' : pick.dj < 0 ? 'DOWN' : pick.di > 0 ? 'RIGHT' : 'LEFT'} - TAP AGAIN TO STAY`
+      statusColor = GOLD
     }
   }
 
@@ -522,7 +527,7 @@ const uiComponent = () => {
     <UiEntity uiTransform={{ width: '100%', height: '100%' }} uiBackground={{ color: CLEAR }}>
       <Stats score={slot?.score ?? 0} lives={slot?.extraLives ?? 0} harbor={harbor} tier={tier} />
       <TurnPill playersTurn={playersTurn} remaining={remaining} status={status} statusColor={statusColor} />
-      {playersTurn && !dead && myCellInDanger() && <LaneWarning />}
+      {playersTurn && !dead && myTargetInDanger() && <LaneWarning />}
       {slot && cell && <Radar ci={cell.i} cj={cell.j} myAddress={slot.address} />}
       {!dead && <SlapButton />}
       {dead && <DeathCard score={slot?.score ?? 0} />}

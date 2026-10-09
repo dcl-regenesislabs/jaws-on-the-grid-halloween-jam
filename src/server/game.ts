@@ -1,4 +1,4 @@
-import { engine, Entity, PlayerIdentityData } from '@dcl/sdk/ecs'
+import { AvatarBase, AvatarEquippedData, engine, Entity, PlayerIdentityData } from '@dcl/sdk/ecs'
 import { syncEntity } from '@dcl/sdk/network'
 import { AUTH_SERVER_PEER_ID } from '@dcl/sdk/network/message-bus-sync'
 import { Storage } from '@dcl/sdk/server'
@@ -16,7 +16,6 @@ import {
   LUNGE_CELLS,
   MAX_PICKUPS,
   MAX_SHARKS,
-  MOVES_PER_TURN,
   PICKUPS_NEAR,
   PLAYERS_TIME,
   SHARKS_NEAR_BASE,
@@ -32,12 +31,12 @@ import {
 } from '../shared/config'
 
 // Server-authoritative game. Runs headless; owns all state in the synced
-// components. Clients only send intent messages (move/attack/respawn).
+// components. Clients only send intent messages (pick/attack/respawn).
 //
-// Global turns: players get PLAYERS_TIME to hop up to MOVES_PER_TURN cells
-// while every shark shows its lunge lane. Then the sharks' turn
-// (SHARKS_TIME): nobody moves, sharks dash, and whoever stands on a lane
-// when it ends is bitten.
+// Global turns: for PLAYERS_TIME everyone picks a neighbouring cell (or
+// stays) while every shark shows its lunge lane. Then execution
+// (SHARKS_TIME): all players swim to their picks as the sharks dash, and
+// whoever ends on a lane is bitten.
 
 let enumIdSeq = 1
 let gameStateEntity: Entity
@@ -129,25 +128,19 @@ export function initServer() {
     pickupPool.push(pickup)
   }
 
-  room.onMessage('move', (data, context) => {
+  // Picks can change freely until the players' turn ends; the last one wins.
+  room.onMessage('pick', (data, context) => {
     if (phase !== 'players') return
     const found = senderSlot(context)
-    if (!found || found.slot.dead || found.slot.stunned || found.slot.movesLeft <= 0) {
-      console.log(
-        '[server] move REJECTED',
-        found ? `dead=${found.slot.dead} stunned=${found.slot.stunned} moves=${found.slot.movesLeft}` : 'no-slot'
-      )
+    if (!found || found.slot.dead || found.slot.stunned) {
+      console.log('[server] pick REJECTED', found ? `dead=${found.slot.dead} stunned=${found.slot.stunned}` : 'no-slot')
       return
     }
     const { di, dj } = data
-    if (Math.abs(di) + Math.abs(dj) !== 1) return
-    const ni = found.slot.cellI + di
-    const nj = found.slot.cellJ + dj
-    if (!inBoard(ni, nj)) return // the net at the world's edge
-    found.slot.cellI = ni
-    found.slot.cellJ = nj
-    found.slot.movesLeft -= 1
-    collectPickups(found.slot)
+    if (Math.abs(di) + Math.abs(dj) > 1) return
+    if (!inBoard(found.slot.cellI + di, found.slot.cellJ + dj)) return // the net at the world's edge
+    found.slot.planDi = di
+    found.slot.planDj = dj
   })
 
   room.onMessage('attack', (_data, context) => {
@@ -162,10 +155,12 @@ export function initServer() {
     for (const [entity, slot] of engine.getEntitiesWith(PlayerSlot)) {
       if (entity === attacker.entity || slot.dead) continue
       if (chebyshev(slot.cellI, slot.cellJ, attacker.slot.cellI, attacker.slot.cellJ) <= 1) {
-        // Frozen until the next players' turn: a sitting duck on a lane.
+        // Frozen until the next players' turn: their pick is dropped, so
+        // they sit where they are — a sitting duck on a lane.
         const mut = PlayerSlot.getMutable(entity)
         mut.stunned = true
-        mut.movesLeft = 0
+        mut.planDi = 0
+        mut.planDj = 0
       }
     }
   })
@@ -177,7 +172,8 @@ export function initServer() {
     found.slot.stunned = false
     found.slot.cellI = CENTER_CELL
     found.slot.cellJ = CENTER_CELL
-    found.slot.movesLeft = phase === 'players' ? MOVES_PER_TURN : 0
+    found.slot.planDi = 0
+    found.slot.planDj = 0
   })
 
   // Leaderboard keeps each player's best saved score. Saves run one at a
@@ -224,6 +220,24 @@ function serverTick(dt: number) {
   turnTick(dt)
 }
 
+// Copy the player's verified profile (name, body shape, wearables, colors)
+// into their slot so clients draw them as an AvatarShape. Runs on slot
+// creation and whenever the base/equipped data changes.
+function applyProfile(playerEntity: Entity, slotEntity: Entity) {
+  const slot = PlayerSlot.getMutableOrNull(slotEntity)
+  if (!slot) return
+  const base = AvatarBase.getOrNull(playerEntity)
+  const equipped = AvatarEquippedData.getOrNull(playerEntity)
+  if (base) {
+    slot.name = base.name || slot.name
+    slot.bodyShape = base.bodyShapeUrn
+    if (base.skinColor) slot.skinColor = { r: base.skinColor.r, g: base.skinColor.g, b: base.skinColor.b }
+    if (base.hairColor) slot.hairColor = { r: base.hairColor.r, g: base.hairColor.g, b: base.hairColor.b }
+    if (base.eyesColor) slot.eyesColor = { r: base.eyesColor.r, g: base.eyesColor.g, b: base.eyesColor.b }
+  }
+  if (equipped) slot.wearables = [...equipped.wearableUrns]
+}
+
 // One synced slot per connected player. Keyed by verified address; in
 // review/guest mode the address can be empty, so fall back to the entity id.
 function syncPlayerSlots() {
@@ -239,14 +253,24 @@ function syncPlayerSlots() {
         name: identity.address.slice(0, 8),
         cellI: CENTER_CELL,
         cellJ: CENTER_CELL,
-        movesLeft: phase === 'players' ? MOVES_PER_TURN : 0,
+        planDi: 0,
+        planDj: 0,
         score: 0,
         extraLives: 0,
         dead: false,
-        stunned: false
+        stunned: false,
+        bodyShape: 'urn:decentraland:off-chain:base-avatars:BaseFemale',
+        wearables: [],
+        skinColor: { r: 0.6, g: 0.462, b: 0.356 },
+        hairColor: { r: 0.283, g: 0.142, b: 0 },
+        eyesColor: { r: 0.6, g: 0.462, b: 0.356 }
       })
+      applyProfile(entity, slot)
       // No explicit sync id: auto-allocation can't collide on reconnects.
       syncEntity(slot, [PlayerSlot.componentId])
+      // Keep the copy fresh if the player changes wearables.
+      AvatarBase.onChange(entity, () => applyProfile(entity, slot))
+      AvatarEquippedData.onChange(entity, () => applyProfile(entity, slot))
     }
   }
   // Drop slots of players who left, and duplicates from reconnect flickers
@@ -263,11 +287,18 @@ function turnTick(dt: number) {
   phaseTimer -= dt
   if (phaseTimer > 0) return
   if (phase === 'players') {
-    // Freeze players; sharks dash along the lanes they showed.
+    // Execution: everyone swims to their pick while sharks dash the lanes
+    // they showed. Bites are checked when the dash ends (resolveLunges).
     phase = 'sharks'
     phaseTimer = SHARKS_TIME
-    for (const [entity] of engine.getEntitiesWith(PlayerSlot)) {
-      PlayerSlot.getMutable(entity).movesLeft = 0
+    for (const [entity, slot] of engine.getEntitiesWith(PlayerSlot)) {
+      if (slot.dead || (slot.planDi === 0 && slot.planDj === 0)) continue
+      const mut = PlayerSlot.getMutable(entity)
+      mut.cellI += slot.planDi
+      mut.cellJ += slot.planDj
+      mut.planDi = 0
+      mut.planDj = 0
+      collectPickups(mut)
     }
     for (const shark of sharkPool) {
       const s = Shark.get(shark)
@@ -281,7 +312,8 @@ function turnTick(dt: number) {
     for (const [entity, slot] of engine.getEntitiesWith(PlayerSlot)) {
       const mut = PlayerSlot.getMutable(entity)
       mut.stunned = false
-      mut.movesLeft = slot.dead ? 0 : MOVES_PER_TURN
+      mut.planDi = 0
+      mut.planDj = 0
     }
     populateSharks()
     populatePickups()

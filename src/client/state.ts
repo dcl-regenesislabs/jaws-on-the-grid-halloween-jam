@@ -3,7 +3,7 @@ import { PlayerIdentityData, engine } from '@dcl/sdk/ecs'
 import { GameState, PlayerSlot, Shark } from '../shared/components'
 
 // Client-side shared state: synced-slot accessors, the local phase clock and
-// the predicted cell (input.ts) that the presentation follows.
+// my pick for the coming execution (shown at once, server confirms).
 //
 // NOTE: no getPlayer() anywhere — its internal getUserData promise rejects with
 // 'channel closed' on scene reloads and kills the scene's update loop. The
@@ -32,14 +32,26 @@ export function gameState(): { phase: string; turn: number } {
   return { phase: 'players', turn: 0 }
 }
 
-// --- prediction: the hop shows on tap; the server confirms or we snap back ---
-export const predicted = { active: false, i: 0, j: 0, at: 0 }
-
-// The cell the presentation shows as mine: predicted if pending, else synced.
 export function myCell(): { i: number; j: number } | null {
   const slot = mySlot()
-  if (!slot) return null
-  return predicted.active ? { i: predicted.i, j: predicted.j } : { i: slot.cellI, j: slot.cellJ }
+  return slot ? { i: slot.cellI, j: slot.cellJ } : null
+}
+
+// --- my pick: shown on tap; the server's echo (planDi/planDj) takes over ---
+export const pendingPick = { active: false, di: 0, dj: 0, at: 0 }
+
+export function myPick(): { di: number; dj: number } {
+  const slot = mySlot()
+  if (pendingPick.active) return { di: pendingPick.di, dj: pendingPick.dj }
+  return slot ? { di: slot.planDi, dj: slot.planDj } : { di: 0, dj: 0 }
+}
+
+// Where I'll be after the coming execution.
+export function myTarget(): { i: number; j: number } | null {
+  const cell = myCell()
+  if (!cell) return null
+  const pick = myPick()
+  return { i: cell.i + pick.di, j: cell.j + pick.dj }
 }
 
 // --- local phase clock: seconds since the current phase started ---
@@ -67,10 +79,10 @@ export function phaseClockSystem(dt: number): void {
   }
 }
 
-// Is my (shown) cell on a shark's lane right now?
-export function myCellInDanger(): boolean {
+// Will I end the coming execution on a shark's lane?
+export function myTargetInDanger(): boolean {
   const slot = mySlot()
-  const cell = myCell()
+  const cell = myTarget()
   if (!slot || slot.dead || !cell) return false
   for (const [_e, s] of engine.getEntitiesWith(Shark)) {
     if (!s.active || s.phase !== 'plan' || s.len <= 0) continue

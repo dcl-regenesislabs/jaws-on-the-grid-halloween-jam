@@ -2,17 +2,21 @@
 export const CELL = 4 // meters per cell
 export const GRID = 200 // cells per side: 50 parcels × 16 m / 4 m
 export const BOARD_SIZE = GRID * CELL // 800 m, the whole scene
-export const WATER_Y = 1.2 // chest height; floor collider stays at y=0
+// Water sits above the real avatars' heads (floor collider at y=0) so they
+// are hidden underwater; the AvatarShape copies swim at AVATAR_Y instead.
+export const WATER_Y = 2.4
+export const AVATAR_Y = WATER_Y - 1.2 // neck-deep
 export const CENTER_CELL = GRID / 2
 
 // Safe harbor around the spawn: sharks never enter, no points either.
 export const HARBOR_RADIUS = 2 // Chebyshev cells → a 5×5 square
 
 // Global turns (seconds). Server is the authority; clients only use these
-// for presentation (timer bar, lunge animation).
+// for presentation (timer bar, glide/lunge animation).
+// PLAYERS_TIME: everyone picks a neighbouring cell (or stays).
+// SHARKS_TIME: execution — players swim to their picks while sharks dash.
 export const PLAYERS_TIME = 2
 export const SHARKS_TIME = 0.5
-export const MOVES_PER_TURN = 1
 
 // Sharks: each one shows its lunge lane during the players' turn, then
 // dashes along it during the sharks' turn. Anyone on the lane is bitten.

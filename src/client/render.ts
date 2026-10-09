@@ -26,8 +26,9 @@ import {
   cellCenter
 } from '../shared/config'
 import { initAudio, sfx, SFX } from './audio'
+import { initAvatars } from './avatars'
 import { inputSystem_ } from './input'
-import { myCell, mySlot, phaseClockSystem } from './state'
+import { gameState, myCell, myPick, mySlot, phaseClockSystem } from './state'
 import { createBoardEdge, createGridWindow, createHarbor, createWaterFloor, gridWindowSystem, waterScrollSystem } from './water'
 
 // Everything presentation-only lives here: water, grid, camera, touch HUD
@@ -103,6 +104,7 @@ export function initClient() {
   createMyCellMarker()
 
   initAudio()
+  initAvatars()
 
   engine.addSystem(phaseClockSystem)
   engine.addSystem(inputSystem_)
@@ -118,7 +120,7 @@ export function initClient() {
   engine.addSystem(pickupVisualSystem)
 }
 
-// --- avatar follow: hop to my (predicted) cell via movePlayerTo ---
+// --- avatar follow: hop to my cell via movePlayerTo (camera + voice follow) ---
 // (direct Transform writes on PlayerEntity are ignored by the client)
 let lastI = -1
 let lastJ = -1
@@ -139,12 +141,14 @@ function avatarFollowSystem(_dt: number): void {
   }).catch(() => {})
 }
 
-// --- my cell: a glowing aqua frame so you can find yourself at a glance ---
+// --- my cell: a glowing aqua frame so you can find yourself at a glance;
+// my pick: a gold frame on the cell I'll swim to at execution ---
 let myMarker: Entity
+let pickMarker: Entity
 
-function createMyCellMarker(): void {
-  myMarker = engine.addEntity()
-  Transform.create(myMarker, { scale: HIDDEN })
+function cellFrame(color: Color4, emissive: Color3): Entity {
+  const root = engine.addEntity()
+  Transform.create(root, { scale: HIDDEN })
   const half = CELL / 2 - 0.15
   for (const [x, z, sx, sz] of [
     [0, half, CELL - 0.1, 0.3],
@@ -153,15 +157,16 @@ function createMyCellMarker(): void {
     [-half, 0, 0.3, CELL - 0.1]
   ]) {
     const bar = engine.addEntity()
-    Transform.create(bar, { parent: myMarker, position: Vector3.create(x, 0, z), scale: Vector3.create(sx, 0.14, sz) })
+    Transform.create(bar, { parent: root, position: Vector3.create(x, 0, z), scale: Vector3.create(sx, 0.14, sz) })
     MeshRenderer.setBox(bar)
-    Material.setPbrMaterial(bar, {
-      albedoColor: Color4.create(0.4, 1, 0.95, 1),
-      emissiveColor: Color3.create(0.3, 1, 0.9),
-      emissiveIntensity: 1.6,
-      castShadows: false
-    })
+    Material.setPbrMaterial(bar, { albedoColor: color, emissiveColor: emissive, emissiveIntensity: 1.6, castShadows: false })
   }
+  return root
+}
+
+function createMyCellMarker(): void {
+  myMarker = cellFrame(Color4.create(0.4, 1, 0.95, 1), Color3.create(0.3, 1, 0.9))
+  pickMarker = cellFrame(Color4.create(1, 0.84, 0.32, 1), Color3.create(1, 0.7, 0.1))
 }
 
 function myCellMarkerSystem(dt: number): void {
@@ -170,6 +175,7 @@ function myCellMarkerSystem(dt: number): void {
   const t = Transform.getMutable(myMarker)
   if (!slot || !cell || slot.dead) {
     t.scale = HIDDEN
+    Transform.getMutable(pickMarker).scale = HIDDEN
     return
   }
   const x = cellCenter(cell.i)
@@ -182,6 +188,17 @@ function myCellMarkerSystem(dt: number): void {
     t.position.z + (z - t.position.z) * k
   )
   t.scale = Vector3.One()
+
+  // Pick frame, only while picking and only if I'm going somewhere.
+  const pick = myPick()
+  const p = Transform.getMutable(pickMarker)
+  if (gameState().phase !== 'players' || slot.stunned || (pick.di === 0 && pick.dj === 0)) {
+    if (p.scale.x !== 0) p.scale = HIDDEN
+    return
+  }
+  const pulse = 0.92 + Math.sin(animClock * 10) * 0.06
+  p.position = Vector3.create(cellCenter(cell.i + pick.di), WATER_Y + 0.27, cellCenter(cell.j + pick.dj))
+  p.scale = Vector3.create(pulse, 1, pulse)
 }
 
 // --- shark visuals: fin, lane telegraph, breach head per synced shark ---

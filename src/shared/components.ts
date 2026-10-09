@@ -29,11 +29,19 @@ export const PlayerSlot = engine.defineComponent('player-slot', {
   name: Schemas.String,
   cellI: Schemas.Int,
   cellJ: Schemas.Int,
-  movesLeft: Schemas.Int,
+  // Picked step for the coming execution (-1..1 each, 0,0 = stay).
+  planDi: Schemas.Int,
+  planDj: Schemas.Int,
   score: Schemas.Int,
   extraLives: Schemas.Int,
   dead: Schemas.Boolean,
-  stunned: Schemas.Boolean
+  stunned: Schemas.Boolean,
+  // Real profile snapshot, so clients can draw this player as an AvatarShape.
+  bodyShape: Schemas.String,
+  wearables: Schemas.Array(Schemas.String),
+  skinColor: Schemas.Color3,
+  hairColor: Schemas.Color3,
+  eyesColor: Schemas.Color3
 })
 
 export const GameState = engine.defineComponent('game-state', {

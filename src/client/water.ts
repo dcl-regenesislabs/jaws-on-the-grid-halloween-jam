@@ -70,8 +70,9 @@ export function createWaterFloor(size: number, y: number, cx: number, cz: number
       filterMode: TextureFilterMode.TFM_BILINEAR,
       wrapMode: TextureWrapMode.TWM_REPEAT
     }),
-    albedoColor: Color4.create(1, 1, 1, 0.95),
-    transparencyMode: MaterialTransparencyMode.MTM_ALPHA_BLEND,
+    // Opaque: the real avatars stand underneath and must not show through.
+    albedoColor: Color4.create(1, 1, 1, 1),
+    transparencyMode: MaterialTransparencyMode.MTM_OPAQUE,
     castShadows: false,
     roughness: 0.5,
     metallic: 0,

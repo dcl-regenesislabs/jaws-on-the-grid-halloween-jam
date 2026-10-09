@@ -1,19 +1,17 @@
 import { InputAction, PointerEventType, engine, inputSystem } from '@dcl/sdk/ecs'
 
-import { ATTACK_COOLDOWN, MOVES_PER_TURN, PLAYERS_TIME, inBoard } from '../shared/config'
+import { ATTACK_COOLDOWN, PLAYERS_TIME, inBoard } from '../shared/config'
 import { room } from '../shared/messages'
-import { gameState, mySlot, phaseElapsed, predicted } from './state'
+import { gameState, mySlot, myPick, pendingPick, phaseElapsed } from './state'
 
-// Input + prediction. Touch d-pad/slap come from ui.tsx; desktop keys are an
-// optional extra (WASD/arrows hop, E slaps). Server is the authority: a
-// prediction it doesn't confirm snaps back.
+// Input. During the players' turn you pick a neighbouring cell (tap the same
+// arrow again to stay); execution moves everyone at once. Touch d-pad/slap
+// come from ui.tsx; desktop keys are an optional extra (WASD/arrows, E).
 
 let clock = 0
-let movesTurn = -1
-let movesUsed = 0
 let lastSlapAt = -999
 
-// Taps this close to the end of the turn would reach the server too late.
+// Picks this close to the end of the turn would reach the server too late.
 const LATE_TAP = 0.15
 
 const KEYS: [InputAction, number, number][] = [
@@ -23,40 +21,32 @@ const KEYS: [InputAction, number, number][] = [
   [InputAction.IA_RIGHT, 1, 0]
 ]
 
-function syncTurn(): void {
-  const { turn } = gameState()
-  if (turn !== movesTurn) {
-    movesTurn = turn
-    movesUsed = 0
-  }
-}
-
-export function canMoveNow(): boolean {
-  syncTurn()
+export function canPickNow(): boolean {
   const slot = mySlot()
   return (
     !!slot &&
     !slot.dead &&
     !slot.stunned &&
     gameState().phase === 'players' &&
-    phaseElapsed() < PLAYERS_TIME - LATE_TAP &&
-    slot.movesLeft > 0 &&
-    movesUsed < MOVES_PER_TURN
+    phaseElapsed() < PLAYERS_TIME - LATE_TAP
   )
 }
 
-export function requestMove(di: number, dj: number): void {
-  if (!canMoveNow()) return
+export function requestPick(di: number, dj: number): void {
+  if (!canPickNow()) return
   const slot = mySlot()!
-  const ni = slot.cellI + di
-  const nj = slot.cellJ + dj
-  if (!inBoard(ni, nj)) return
-  movesUsed += 1
-  predicted.active = true
-  predicted.i = ni
-  predicted.j = nj
-  predicted.at = clock
-  room.send('move', { di, dj })
+  const current = myPick()
+  // Same arrow again = change of mind: stay.
+  if (current.di === di && current.dj === dj) {
+    di = 0
+    dj = 0
+  }
+  if (!inBoard(slot.cellI + di, slot.cellJ + dj)) return
+  pendingPick.active = true
+  pendingPick.di = di
+  pendingPick.dj = dj
+  pendingPick.at = clock
+  room.send('pick', { di, dj })
 }
 
 export function slapCooldownLeft(): number {
@@ -81,19 +71,18 @@ export function inputSystem_(dt: number): void {
   // Desktop keyboard (touch players use the on-screen d-pad).
   for (const [action, di, dj] of KEYS) {
     if (inputSystem.isTriggered(action, PointerEventType.PET_DOWN)) {
-      requestMove(di, dj)
+      requestPick(di, dj)
       break
     }
   }
   if (inputSystem.isTriggered(InputAction.IA_PRIMARY, PointerEventType.PET_DOWN)) requestSlap()
 
-  // Reconcile: server echoed the cell → done; no echo by the time sharks
-  // move (rejected or too late), or I died → snap back to the server's cell,
-  // so the lane warning never lies during the sharks' turn.
-  if (!predicted.active) return
+  // Reconcile: the server echoed my pick → its copy takes over; no echo in
+  // time (rejected), turn over, stunned or dead → drop the local one.
+  if (!pendingPick.active) return
   const slot = mySlot()
-  const echoed = !!slot && slot.cellI === predicted.i && slot.cellJ === predicted.j
-  if (!slot || slot.dead || echoed || gameState().phase !== 'players' || clock - predicted.at > 1.2) {
-    predicted.active = false
+  const echoed = !!slot && slot.planDi === pendingPick.di && slot.planDj === pendingPick.dj
+  if (!slot || slot.dead || slot.stunned || echoed || gameState().phase !== 'players' || clock - pendingPick.at > 1.2) {
+    pendingPick.active = false
   }
 }

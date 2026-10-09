@@ -4,7 +4,7 @@ import { registerMessages } from '@dcl/sdk/network'
 // Shared message contract. Registered once at module level on both sides.
 export const Messages = {
   // Client → Server
-  move: Schemas.Map({ di: Schemas.Int, dj: Schemas.Int }),
+  pick: Schemas.Map({ di: Schemas.Int, dj: Schemas.Int }), // next cell; 0,0 = stay
   attack: Schemas.Map({}),
   respawn: Schemas.Map({}),
   saveScore: Schemas.Map({}),
