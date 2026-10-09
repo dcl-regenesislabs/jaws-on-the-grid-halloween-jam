@@ -2,7 +2,7 @@ import { engine } from '@dcl/sdk/ecs'
 import { Color4 } from '@dcl/sdk/math'
 import ReactEcs, { Label, ReactEcsRenderer, UiEntity } from '@dcl/sdk/react-ecs'
 
-import { Pickup, PlayerSlot } from '../shared/components'
+import { GameState, Pickup, PlayerSlot } from '../shared/components'
 import { HARBOR_MIN, HARBOR_SIZE, PLAYERS_TIME, SHARKS_TIME, inHarbor, tierOf } from '../shared/config'
 import { room } from '../shared/messages'
 import { canPlanNow, canSlapNow, canStep, requestCancel, requestSlap, requestStep, slapCooldownLeft } from './input'
@@ -16,17 +16,20 @@ import { gameState, isGuest, myCell, myMaxSteps, myPlan, myTargetInDanger, mySlo
 // Bumped manually per deploy to spot stale cached bundles on the phone.
 export const BUILD_TAG = 'ui2'
 
-// Connection watchdog: without server heartbeats, there is no multiplayer
-// server (or the room is broken) — block with an error modal.
+// Connection watchdog: no synced GameState => no multiplayer server (or the
+// room is broken). GameState only exists if the server created and synced it.
+// (Message-bus pings never arrive in local preview; CRDT sync does.)
 let noServerElapsed = 0
 let serverConnected = false
 let uiClock = 0
-room.onMessage('ping', () => {
-  if (!serverConnected) console.log('[client] first ping received', BUILD_TAG)
-  serverConnected = true
-})
 engine.addSystem((dt) => {
   uiClock += dt
+  if (serverConnected) return
+  for (const [_e] of engine.getEntitiesWith(GameState)) {
+    serverConnected = true
+    console.log('[client] server state synced', BUILD_TAG)
+    break
+  }
   if (!serverConnected) noServerElapsed += dt
 })
 

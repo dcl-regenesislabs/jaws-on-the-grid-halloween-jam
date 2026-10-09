@@ -1,5 +1,7 @@
 import {
+  Animator,
   Entity,
+  GltfContainer,
   InputAction,
   InputModifier,
   MainCamera,
@@ -209,11 +211,11 @@ function hideStepMarkers(from: number): void {
   }
 }
 
-// --- shark visuals: fin, lane telegraph, breach head per synced shark ---
+// --- shark visuals: animated GLB shark per synced shark + lane telegraph ---
 interface SharkVisual {
-  fin: Entity
+  fin: Entity // small GLB, deep: only the dorsal fin out, circling its cell
+  attacker: Entity // big GLB, hidden until the lunge: grows and bites
   lane: Entity
-  head: Entity
   phase: string
   clock: number
   rise: number // 0 submerged → 1 surfaced
@@ -222,6 +224,7 @@ interface SharkVisual {
 
 const visuals = new Map<Entity, SharkVisual>()
 const HIDDEN = Vector3.Zero()
+const FIN_SCALE = Vector3.create(1.4, 1.4, 1.4) // fin GLB is ~1m tall
 
 function laneMaterial(e: Entity, hunting: boolean) {
   Material.setPbrMaterial(e, {
@@ -236,39 +239,24 @@ function laneMaterial(e: Entity, hunting: boolean) {
 function ensureVisual(shark: Entity): SharkVisual {
   let v = visuals.get(shark)
   if (!v) {
+    // Swim: real fin mesh (procedural GLB), tip above the water.
     const fin = engine.addEntity()
-    MeshRenderer.setBox(fin)
-    Material.setPbrMaterial(fin, {
-      albedoColor: Color4.create(0.15, 0.17, 0.2, 1),
-      metallic: 0.1,
-      roughness: 0.6
-    })
+    GltfContainer.create(fin, { src: 'assets/models/shark-fin.glb' })
     Transform.create(fin, { scale: HIDDEN })
+
+    const attacker = engine.addEntity()
+    GltfContainer.create(attacker, { src: 'assets/models/shark.glb' })
+    Animator.create(attacker, {
+      states: [{ clip: 'Armature|Swim', playing: true, loop: true }]
+    })
+    Transform.create(attacker, { scale: HIDDEN })
 
     const lane = engine.addEntity()
     MeshRenderer.setBox(lane)
     laneMaterial(lane, true)
     Transform.create(lane, { scale: HIDDEN })
 
-    const head = engine.addEntity()
-    MeshRenderer.setSphere(head)
-    Material.setPbrMaterial(head, {
-      albedoColor: Color4.create(0.2, 0.24, 0.3, 1),
-      metallic: 0.1,
-      roughness: 0.5
-    })
-    Transform.create(head, { scale: HIDDEN })
-    const jaw = engine.addEntity()
-    MeshRenderer.setBox(jaw)
-    Material.setPbrMaterial(jaw, { albedoColor: Color4.create(0.9, 0.9, 0.92, 1), castShadows: false })
-    Transform.create(jaw, {
-      parent: head,
-      position: Vector3.create(0, -0.28, 0.28),
-      rotation: Quaternion.fromEulerDegrees(25, 0, 0),
-      scale: Vector3.create(0.7, 0.18, 0.6)
-    })
-
-    v = { fin, lane, head, phase: '', clock: 0, rise: 0, active: false }
+    v = { fin, attacker, lane, phase: '', clock: 0, rise: 0, active: false }
     visuals.set(shark, v)
   }
   return v
@@ -279,6 +267,22 @@ function yaw(dirX: number, dirZ: number): number {
 }
 
 const laneHunting = new Map<Entity, boolean>()
+// debug probe: how many fins are actually visible and where
+export function finDebug(): string {
+  let total = 0
+  let shown = 0
+  let info = '-'
+  for (const [_e, v] of visuals) {
+    total++
+    const t = Transform.getOrNull(v.fin)
+    if (t && t.scale.x > 0) {
+      shown++
+      info = `y${t.position.y.toFixed(2)} @${t.position.x.toFixed(0)},${t.position.z.toFixed(0)}`
+    }
+  }
+  return `fins ${shown}/${total} ${info}`
+}
+
 let animClock = 0
 
 function sharkVisualSystem(dt: number): void {
@@ -294,8 +298,8 @@ function sharkVisualSystem(dt: number): void {
     if (!shark.active || !near) {
       if (v.active) {
         Transform.getMutable(v.fin).scale = HIDDEN
+        Transform.getMutable(v.attacker).scale = HIDDEN
         Transform.getMutable(v.lane).scale = HIDDEN
-        Transform.getMutable(v.head).scale = HIDDEN
       }
       v.active = false
       v.rise = 0
@@ -308,8 +312,9 @@ function sharkVisualSystem(dt: number): void {
     if (!v.active) {
       // Surfacing: snap under its cell, then rise.
       v.active = true
-      finT.position = Vector3.create(x, WATER_Y - 2, z)
-      finT.scale = Vector3.create(1.2, 2, 2.6)
+      finT.position = Vector3.create(x, WATER_Y - 3, z)
+      finT.scale = FIN_SCALE
+      Transform.createOrReplace(v.attacker, { scale: HIDDEN })
     }
     if (v.phase !== shark.phase) {
       v.phase = shark.phase
@@ -317,35 +322,54 @@ function sharkVisualSystem(dt: number): void {
     }
     v.clock += dt
     v.rise = Math.min(1, v.rise + dt / 0.6)
-    const finY = WATER_Y - 2 + (1.8 + Math.sin(animClock * 6) * 0.1) * v.rise
+    // Cruise: fin base at the surface line (GLB base is y=0).
+    const finY = WATER_Y - 3 + (2.7 + Math.sin(animClock * 6) * 0.06) * v.rise
 
     if (shark.phase === 'lunge') {
-      // Dash along the lane, ease-in, and breach at the far end.
+      // Fin dives; the big shark dashes along the lane, grows, and bites at
+      // the far end (breach up, pitch down).
       const k = Math.min(1, v.clock / SHARKS_TIME)
       const e = k * k
       const toX = cellCenter(shark.cellI + shark.dirX * shark.len)
       const toZ = cellCenter(shark.cellJ + shark.dirZ * shark.len)
-      finT.position = Vector3.create(x + (toX - x) * e, finY, z + (toZ - z) * e)
-      finT.rotation = Quaternion.fromEulerDegrees(0, yaw(shark.dirX, shark.dirZ), 0)
-      Transform.getMutable(v.lane).scale = HIDDEN
       const breach = Math.sin(Math.min(1, k * 1.4) * Math.PI)
-      Transform.createOrReplace(v.head, {
-        position: Vector3.create(toX, WATER_Y - 1 + breach * 2.4, toZ),
-        rotation: Quaternion.fromEulerDegrees(-30 * breach, yaw(shark.dirX, shark.dirZ), 0),
-        scale: Vector3.create(CELL * 0.6, CELL * 0.45, CELL * 0.8)
+      finT.scale = HIDDEN
+      Transform.createOrReplace(v.attacker, {
+        position: Vector3.create(x + (toX - x) * e, WATER_Y - 2.4 + breach * 3.4, z + (toZ - z) * e),
+        rotation: Quaternion.fromEulerDegrees(-40 * breach, yaw(shark.dirX, shark.dirZ), 0),
+        scale: Vector3.create(0.7 + k * 0.8, 0.7 + k * 0.8, 0.7 + k * 0.8) // grows through the dash
       })
+      Transform.getMutable(v.lane).scale = HIDDEN
       continue
     }
 
-    // Plan: cruise toward its cell, show the lane it will dash along.
-    const kk = Math.min(1, dt / 0.15)
-    finT.position = Vector3.create(
-      finT.position.x + (x - finT.position.x) * kk,
-      finY,
-      finT.position.z + (z - finT.position.z) * kk
-    )
-    finT.rotation = Quaternion.fromEulerDegrees(0, yaw(shark.dirX, shark.dirZ), 0)
-    Transform.getMutable(v.head).scale = HIDDEN
+    // Plan: if the cell moved (after a lunge), swim straight to it; once
+    // there, idle in circles with the fin trailing the motion.
+    Transform.getMutable(v.attacker).scale = HIDDEN
+    if (finT.scale.x === 0) finT.scale = FIN_SCALE // restore after a lunge
+    const swimSpeed = 4 // m/s
+    const toCellX = x - finT.position.x
+    const toCellZ = z - finT.position.z
+    const dist = Math.sqrt(toCellX * toCellX + toCellZ * toCellZ)
+
+    if (dist > 0.9) {
+      // Swim toward the cell, nose into the direction of travel.
+      const step = Math.min(dist, swimSpeed * dt)
+      finT.position = Vector3.create(
+        finT.position.x + (toCellX / dist) * step,
+        finY,
+        finT.position.z + (toCellZ / dist) * step
+      )
+      const yawDeg = (Math.atan2(toCellX, toCellZ) * 180) / Math.PI - 90 // model faces +X
+      finT.rotation = Quaternion.fromEulerDegrees(0, yawDeg, 0)
+    } else {
+      // Idle: circle the cell, tip trailing the direction of motion.
+      const circle = 0.8 // m radius
+      const spin = animClock * 0.7
+      const spinDeg = (spin * 180) / Math.PI
+      finT.position = Vector3.create(x + Math.cos(spin) * circle, finY, z + Math.sin(spin) * circle)
+      finT.rotation = Quaternion.fromEulerDegrees(0, 90 - spinDeg, 0)
+    }
 
     if (shark.len > 0 && v.rise >= 1) {
       if (laneHunting.get(entity) !== shark.hunting) {

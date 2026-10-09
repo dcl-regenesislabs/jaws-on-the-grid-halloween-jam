@@ -51,3 +51,9 @@ Compared with v2 exports, unprocessed v3 final-150-ms RMS is approximately 31 dB
 Review: `C:\Users\mateo\Downloads\Jaws-loop-review\v3\`. Contains unblended CUT WAVs, lossless loop masters, MP3s, three-repeat CHECK WAVs (decoded MP3 concatenation without hidden crossfades), six-second JOIN close-ups, a four-level transition audition using illustrative one-second crossfades, `cuts.json`, and `boundary-analysis.png`. Source scripts live in the parent folder: `analyze_v3.py`, `plot_v3.py`, `prepare_loops_v3.py`. V2 is backed up in `v2/`; older parent-folder auditions are superseded. Runtime filenames retain calm/tension/danger/climax; danger means almost climax.
 
 Next step: audition v3 JOIN and CHECK files for phrase completion and repetition, especially tension's return to its quiet start and the climax entrance. No listening test, client test, or deployment performed. Prototype skill was unavailable in user skill folders. Previously recorded game-use permission uncertainty is unchanged.
+
+## Shark model (2026-10-09)
+
+- `assets/models/shark.glb`: "Shark" by Quaternius, Animated Fish Bundle on
+  poly.pizza (https://poly.pizza/bundle/Animated-Fish-Bundle-ZkGbjS8m8g), CC0.
+  Swim clip: `Armature|Swim`. Downloaded from static.poly.pizza.

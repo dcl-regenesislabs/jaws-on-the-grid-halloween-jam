@@ -34,7 +34,7 @@ echo "server supervisor pid $!"
 
 # Wait for both to be up.
 until grep -q "decentraland://" "$PREVIEW_LOG" 2>/dev/null; do sleep 1; done
-until grep -q "first tick reached" "$SERVER_LOG" 2>/dev/null; do sleep 1; done
+until grep -q "server_mode=true" "$SERVER_LOG" 2>/dev/null; do sleep 1; done
 sleep 1
 
 LINK=$(grep -oE "decentraland://[^ ]*" "$PREVIEW_LOG" | head -1)

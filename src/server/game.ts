@@ -490,8 +490,16 @@ function clearRun(i: number, j: number, dirX: number, dirZ: number, max: number)
 // Each shark commits to a straight lane for this turn. Hunters aim at the
 // nearest player in range along the longer axis, ending on their cell if
 // it's within reach; the rest wander a cell or two.
+// Lanes never cross another shark: `claimed` holds every cell a shark sits on
+// or plans to lunge through this turn, and runs stop short of it.
 function planLanes() {
   const players = alivePlayers().filter((p) => !inHarbor(p.i, p.j))
+  const claimed = new Set<string>()
+  for (const shark of sharkPool) {
+    const s = Shark.get(shark)
+    if (s.active) claimed.add(`${s.cellI},${s.cellJ}`)
+  }
+
   for (const shark of sharkPool) {
     const s = Shark.get(shark)
     if (!s.active) continue
@@ -520,12 +528,24 @@ function planLanes() {
       hunting = true
     }
 
-    let len = clearRun(s.cellI, s.cellJ, dir[0], dir[1], want)
-    if (len === 0) {
-      // Boxed in by the harbor or the edge: turn around.
-      dir = [-dir[0], -dir[1]]
-      len = clearRun(s.cellI, s.cellJ, dir[0], dir[1], want)
+    const clearOf = (i: number, j: number, dirX: number, dirZ: number, max: number): number => {
+      let len = 0
+      while (
+        len < max &&
+        sharkCanEnter(i + dirX * (len + 1), j + dirZ * (len + 1)) &&
+        !claimed.has(`${i + dirX * (len + 1)},${j + dirZ * (len + 1)}`)
+      )
+        len++
+      return len
     }
+
+    let len = clearOf(s.cellI, s.cellJ, dir[0], dir[1], want)
+    if (len === 0) {
+      // Boxed in by the harbor, the edge, or another shark: turn around.
+      dir = [-dir[0], -dir[1]]
+      len = clearOf(s.cellI, s.cellJ, dir[0], dir[1], want)
+    }
+    for (const [ci, cj] of laneCells(s.cellI, s.cellJ, dir[0], dir[1], len)) claimed.add(`${ci},${cj}`)
     const mut = Shark.getMutable(shark)
     mut.dirX = dir[0]
     mut.dirZ = dir[1]
