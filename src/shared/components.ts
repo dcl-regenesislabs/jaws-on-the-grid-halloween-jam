@@ -26,7 +26,14 @@ export const PlayerSlot = engine.defineComponent('player-slot', {
   score: Schemas.Int,
   extraLives: Schemas.Int,
   dead: Schemas.Boolean,
-  stunned: Schemas.Boolean
+  stunned: Schemas.Boolean,
+  movesLeft: Schemas.Int,
+  // Real profile snapshot for the fake AvatarShape.
+  bodyShape: Schemas.String,
+  wearables: Schemas.Array(Schemas.String),
+  skinColor: Schemas.Color3,
+  hairColor: Schemas.Color3,
+  eyesColor: Schemas.Color3
 })
 
 export const GameState = engine.defineComponent('game-state', {

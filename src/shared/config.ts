@@ -7,7 +7,8 @@ export const CENTER_CELL = Math.floor(GRID / 2)
 
 // Turn timing (seconds). Server is the authority; client uses these only for
 // local presentation (countdowns, animations).
-export const PLAYERS_TIME = 2
+export const PLAYERS_TIME = 10
+export const MOVE_LIMIT = 3 // steps per players phase
 export const STEP_TIME = 0.6
 export const TELEGRAPH_TIME = 0.9
 export const ATTACK_TIME = 1.0
@@ -32,4 +33,15 @@ export const ATTACK_COOLDOWN = 3
 
 export function cellCenter(i: number): number {
   return (i + 0.5) * CELL
+}
+
+// The 9 cells of a 3x3 attack ahead of (i,j) along a cardinal direction.
+export function attackCells(i: number, j: number, dirX: number, dirZ: number): [number, number][] {
+  const cells: [number, number][] = []
+  for (let f = 1; f <= 3; f++) {
+    for (let lat = -1; lat <= 1; lat++) {
+      cells.push([i + dirX * f + -dirZ * lat, j + dirZ * f + dirX * lat])
+    }
+  }
+  return cells
 }

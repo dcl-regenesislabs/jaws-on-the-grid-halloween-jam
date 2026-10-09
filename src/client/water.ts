@@ -1,5 +1,6 @@
 import {
   ColliderLayer,
+  Entity,
   Material,
   MaterialTransparencyMode,
   MeshCollider,
@@ -94,27 +95,37 @@ export function createWaterFloor(size: number, y: number, cx: number, cz: number
   })
 }
 
-// Visible board grid: glowing strips floating above the water surface.
-// Opaque and thick: alpha blending against the scrolling water makes thin
-// translucent lines flicker and break apart.
-export function createGridLines(): void {
+// Visible board grid: glowing strips floating above the water surface,
+// tiled 3x3 around the board so edges read as endless. All lines are children
+// of one root — the world-shift system slides the root, not each line.
+// Opaque and thick enough: alpha blending against the scrolling water makes
+// thin translucent lines flicker and break apart.
+export function createGridLines(): Entity {
+  const root = engine.addEntity()
+  Transform.create(root, {})
   const size = GRID * CELL
-  for (let k = 0; k <= GRID; k++) {
-    for (const vertical of [true, false]) {
-      const line = engine.addEntity()
-      Transform.create(line, {
-        position: vertical
-          ? Vector3.create(k * CELL, WATER_Y + 0.22, size / 2)
-          : Vector3.create(size / 2, WATER_Y + 0.22, k * CELL),
-        scale: vertical ? Vector3.create(0.2, 0.12, size) : Vector3.create(size, 0.12, 0.2)
-      })
-      MeshRenderer.setBox(line)
-      Material.setPbrMaterial(line, {
-        albedoColor: Color4.create(0.2, 0.5, 0.7, 1),
-        emissiveColor: Color3.create(0.15, 0.4, 0.6),
-        emissiveIntensity: 0.8,
-        castShadows: false
-      })
+  for (let ox = -1; ox <= 1; ox++) {
+    for (let oz = -1; oz <= 1; oz++) {
+      for (let k = 0; k <= GRID; k++) {
+        for (const vertical of [true, false]) {
+          const line = engine.addEntity()
+          Transform.create(line, {
+            parent: root,
+            position: vertical
+              ? Vector3.create(k * CELL + ox * size, WATER_Y + 0.22, size / 2 + oz * size)
+              : Vector3.create(size / 2 + ox * size, WATER_Y + 0.22, k * CELL + oz * size),
+            scale: vertical ? Vector3.create(0.1, 0.08, size) : Vector3.create(size, 0.08, 0.1)
+          })
+          MeshRenderer.setBox(line)
+          Material.setPbrMaterial(line, {
+            albedoColor: Color4.create(0.2, 0.5, 0.7, 1),
+            emissiveColor: Color3.create(0.15, 0.4, 0.6),
+            emissiveIntensity: 0.8,
+            castShadows: false
+          })
+        }
+      }
     }
   }
+  return root
 }

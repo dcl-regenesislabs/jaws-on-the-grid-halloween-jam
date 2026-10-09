@@ -1,4 +1,4 @@
-import { engine, Entity, PlayerIdentityData } from '@dcl/sdk/ecs'
+import { engine, Entity, PlayerIdentityData, AvatarBase, AvatarEquippedData } from '@dcl/sdk/ecs'
 import { syncEntity } from '@dcl/sdk/network'
 import { AUTH_SERVER_PEER_ID } from '@dcl/sdk/network/message-bus-sync'
 import { Storage } from '@dcl/sdk/server'
@@ -21,7 +21,9 @@ import {
   STEP_TIME,
   STUN_SECONDS,
   SURVIVAL_BONUS,
-  TELEGRAPH_TIME
+  TELEGRAPH_TIME,
+  MOVE_LIMIT,
+  attackCells
 } from '../shared/config'
 
 // Server-authoritative game. Runs headless; owns all state in the synced
@@ -51,16 +53,6 @@ function clampCell(v: number): number {
   return Math.min(Math.max(v, 0), GRID - 1)
 }
 
-// The 9 cells of a 3x3 ahead of (i,j) along a cardinal direction.
-function attackCells(i: number, j: number, dirX: number, dirZ: number): [number, number][] {
-  const cells: [number, number][] = []
-  for (let f = 1; f <= 3; f++) {
-    for (let lat = -1; lat <= 1; lat++) {
-      cells.push([i + dirX * f + -dirZ * lat, j + dirZ * f + dirX * lat])
-    }
-  }
-  return cells
-}
 
 function findSlot(key: string) {
   for (const [entity, slot] of engine.getEntitiesWith(PlayerSlot)) {
@@ -101,14 +93,17 @@ export function initServer() {
   }
 
   room.onMessage('move', (data, context) => {
-    console.log('[server] move', JSON.stringify(data), 'phase', phase, 'slot', !!senderSlot(context))
     if (phase !== 'players') return
     const found = senderSlot(context)
-    if (!found || found.slot.dead || found.slot.stunned) return
+    if (!found || found.slot.dead || found.slot.stunned || found.slot.movesLeft <= 0) {
+      console.log('[server] move REJECTED', found ? `dead=${found.slot.dead} stunned=${found.slot.stunned} moves=${found.slot.movesLeft}` : 'no-slot', 'phase', phase)
+      return
+    }
     const { di, dj } = data
     if (Math.abs(di) + Math.abs(dj) !== 1) return
     found.slot.cellI = clampCell(found.slot.cellI + di)
     found.slot.cellJ = clampCell(found.slot.cellJ + dj)
+    found.slot.movesLeft -= 1
   })
 
   room.onMessage('attack', (_data, context) => {
@@ -171,6 +166,23 @@ function serverTick(dt: number) {
   pickupsTick(dt)
 }
 
+// Copy the player's verified profile (name, body shape, wearables, colors)
+// into their slot, so clients render real AvatarShapes. Called on slot
+// creation and whenever the base/equipped data changes.
+function applyProfile(playerEntity: Entity, slotEntity: Entity) {
+  const base = AvatarBase.getOrNull(playerEntity)
+  const equipped = AvatarEquippedData.getOrNull(playerEntity)
+  const slot = PlayerSlot.getMutable(slotEntity)
+  if (base) {
+    slot.name = base.name || slot.name
+    slot.bodyShape = base.bodyShapeUrn
+    if (base.skinColor) slot.skinColor = { r: base.skinColor.r, g: base.skinColor.g, b: base.skinColor.b }
+    if (base.hairColor) slot.hairColor = { r: base.hairColor.r, g: base.hairColor.g, b: base.hairColor.b }
+    if (base.eyesColor) slot.eyesColor = { r: base.eyesColor.r, g: base.eyesColor.g, b: base.eyesColor.b }
+  }
+  if (equipped) slot.wearables = [...equipped.wearableUrns]
+}
+
 // One synced slot per connected player. Keyed by verified address; in
 // review/guest mode the address can be empty, so fall back to the entity id.
 function syncPlayerSlots() {
@@ -178,7 +190,8 @@ function syncPlayerSlots() {
   for (const [entity, identity] of engine.getEntitiesWith(PlayerIdentityData)) {
     const key = identity.address.toLowerCase() || `entity-${entity}`
     seen.add(key)
-    if (!findSlot(key)) {
+    const existing = findSlot(key)
+    if (!existing) {
       console.log('[server] new player slot:', key)
       const slot = engine.addEntity()
       PlayerSlot.create(slot, {
@@ -189,14 +202,35 @@ function syncPlayerSlots() {
         score: 0,
         extraLives: 0,
         dead: false,
-        stunned: false
+        stunned: false,
+        movesLeft: MOVE_LIMIT,
+        bodyShape: 'urn:decentraland:off-chain:base-avatars:BaseFemale',
+        wearables: [],
+        skinColor: { r: 0.6, g: 0.462, b: 0.356 },
+        hairColor: { r: 0.283, g: 0.142, b: 0 },
+        eyesColor: { r: 0.6, g: 0.462, b: 0.356 }
       })
+      applyProfile(entity, slot)
       syncEntity(slot, [PlayerSlot.componentId], enumIdSeq++)
+      // Keep the slot's profile fresh if the player changes wearables.
+      AvatarBase.onChange(entity, () => applyProfile(entity, slot))
+      AvatarEquippedData.onChange(entity, () => applyProfile(entity, slot))
     }
   }
-  // Drop slots of players who left.
+  // Drop slots of players who left, and duplicates from reconnect flickers
+  // (keep the oldest per address).
+  const firstByAddress = new Map<string, Entity>()
   for (const [entity, slot] of engine.getEntitiesWith(PlayerSlot)) {
-    if (!seen.has(slot.address.toLowerCase())) engine.removeEntity(entity)
+    const key = slot.address.toLowerCase()
+    if (!seen.has(key)) {
+      engine.removeEntity(entity)
+      continue
+    }
+    if (firstByAddress.has(key)) {
+      engine.removeEntity(entity)
+    } else {
+      firstByAddress.set(key, entity)
+    }
   }
 }
 
@@ -230,7 +264,9 @@ function turnTick(dt: number) {
     phase = 'players'
     phaseTimer = PLAYERS_TIME
     for (const [entity] of engine.getEntitiesWith(PlayerSlot)) {
-      PlayerSlot.getMutable(entity).stunned = false
+      const mut = PlayerSlot.getMutable(entity)
+      mut.stunned = false
+      mut.movesLeft = MOVE_LIMIT
     }
     for (const [entity, shark] of engine.getEntitiesWith(Shark)) {
       if (shark.phase !== 'move') Shark.getMutable(entity).phase = 'move'

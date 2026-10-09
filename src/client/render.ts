@@ -1,4 +1,6 @@
 import {
+  AvatarModifierArea,
+  AvatarShape,
   Entity,
   InputAction,
   InputModifier,
@@ -12,125 +14,103 @@ import {
   engine
 } from '@dcl/sdk/ecs'
 import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
-import { movePlayerTo } from '~system/RestrictedActions'
 
 import { GameState, Pickup, PlayerSlot, Shark } from '../shared/components'
-import { ATTACK_TIME, BOARD_SIZE, CELL, GRID, WATER_Y, cellCenter } from '../shared/config'
+import { ATTACK_TIME, BOARD_SIZE, CELL, GRID, WATER_Y, attackCells, cellCenter } from '../shared/config'
 import { createGridLines, createWaterFloor, waterScrollSystem } from './water'
+import { audioSystem, startAmbient } from './audio'
+import { inputSystem_ } from './input'
+import { gamePhase, hop, HOP_TIME, hopOffset, mySlot, worldOffset, worldTarget } from './state'
 
 // Everything presentation-only lives here: water, grid, camera, touch HUD
-// config, avatar follow, and shark/pickup visuals driven by synced state.
+// config, and shark/pickup/avatar visuals driven by synced state. The real
+// avatars are hidden; everyone is a capsule at their game cell.
 
-// NOTE: no getPlayer() here — its internal getUserData promise rejects with
-// 'channel closed' on scene reloads and kills the scene's update loop.
-// With one player connected, the single slot is unambiguous. For real
-// multiplayer matching by address, revisit with a guarded fetch.
-let camEntity: Entity
-
-const CAM_OFFSET = { x: 0, y: 16, z: -9 }
-const CAM_DEADZONE = 5 // m the avatar can wander before the camera follows
-
-// Camera trails the avatar, but only past a deadzone so movement reads on screen.
-function cameraFollowSystem(dt: number): void {
-  if (!camEntity) return
-  const playerT = Transform.getOrNull(engine.PlayerEntity)
-  if (!playerT) return
-  const camT = Transform.getMutable(camEntity)
-  const anchorX = camT.position.x - CAM_OFFSET.x
-  const anchorZ = camT.position.z - CAM_OFFSET.z
-  const dx = playerT.position.x - anchorX
-  const dz = playerT.position.z - anchorZ
-  const dist = Math.sqrt(dx * dx + dz * dz)
-  if (dist <= CAM_DEADZONE) return
-  const pull = (dist - CAM_DEADZONE) / dist
-  const k = Math.min(1, dt * 6)
-  camT.position.x += dx * pull * k
-  camT.position.z += dz * pull * k
-}
-
-export function mySlot(): ReturnType<typeof PlayerSlot.getOrNull> {
-  let only: ReturnType<typeof PlayerSlot.getOrNull> = null
-  let count = 0
-  for (const [_e, slot] of engine.getEntitiesWith(PlayerSlot)) {
-    only = slot
-    count++
-  }
-  return count === 1 ? only : null
-}
-
-export function gamePhase(): string {
-  for (const [_e, state] of engine.getEntitiesWith(GameState)) return state.phase
-  return 'players'
-}
+let gridRoot: Entity
 
 export function initClient() {
-  console.log('[client] boot hb2')
+  console.log('[client] boot hb5')
   // No walk/jump/emote: grid movement comes from our UI buttons.
   InputModifier.createOrReplace(engine.PlayerEntity, {
     mode: InputModifier.Mode.Standard({ disableAll: true })
   })
 
-  // Clear the native mobile HUD: no joystick, no crosshair, no gamepad
-  // buttons. Movement and attack are our own touch UI (see ui.tsx).
+  // Hide all real avatars (remote AND ours); game shows fake capsules instead.
+  const hideArea = engine.addEntity()
+  Transform.create(hideArea, { position: Vector3.create(BOARD_SIZE / 2, 2, BOARD_SIZE / 2) })
+  AvatarModifierArea.create(hideArea, {
+    area: Vector3.create(800, 30, 800),
+    excludeIds: [],
+    modifiers: [2] // AMT_HIDE_NAMETAGS only — HIDE_AVATARS also eats AvatarShape NPCs
+  })
+
+  // Native touch HUD: joystick/crosshair hidden; only the big central button
+  // (attack, fist icon) stays. Movement arrows are custom UI on the left.
+  const icon = (src: string) => ({ tex: { $case: 'texture' as const, texture: { src } } })
   TouchScreenControls.createOrReplace(engine.RootEntity, {
     hideJoystick: true,
     hideCrosshair: true,
     touchInputs: [
-      InputAction.IA_POINTER,
-      InputAction.IA_PRIMARY,
-      InputAction.IA_SECONDARY,
-      InputAction.IA_JUMP,
-      InputAction.IA_ACTION_3,
-      InputAction.IA_ACTION_4,
-      InputAction.IA_ACTION_5,
-      InputAction.IA_ACTION_6
-    ].map((a) => ({ inputAction: a, hide: true }))
+      { inputAction: InputAction.IA_POINTER, hide: true },
+      { inputAction: InputAction.IA_PRIMARY, hide: true },
+      { inputAction: InputAction.IA_SECONDARY, hide: true },
+      { inputAction: InputAction.IA_ACTION_3, hide: true },
+      { inputAction: InputAction.IA_ACTION_4, hide: true },
+      { inputAction: InputAction.IA_ACTION_5, hide: true },
+      { inputAction: InputAction.IA_ACTION_6, hide: true },
+      { inputAction: InputAction.IA_JUMP, hide: false, icon: icon('assets/images/ui/fist.png') }
+    ]
   })
 
-  // Isometric-ish camera that follows the avatar from above/behind.
-  // Positive pitch = down; never exactly 90 (breaks direction reference).
+  // Static camera over the board center: the player never leaves the frame.
   const cam = engine.addEntity()
   Transform.create(cam, {
-    position: Vector3.create(BOARD_SIZE / 2, 16, BOARD_SIZE / 2 - 9),
-    rotation: Quaternion.fromEulerDegrees(58, 0, 0)
+    position: Vector3.create(BOARD_SIZE / 2, 9, BOARD_SIZE / 2 - 6),
+    rotation: Quaternion.fromEulerDegrees(52, 0, 0)
   })
   VirtualCamera.create(cam, {})
   MainCamera.createOrReplace(engine.CameraEntity, { virtualCameraEntity: cam })
-  camEntity = cam
 
   // Ocean covers the whole 50x50-parcel scene.
   createWaterFloor(800, WATER_Y, BOARD_SIZE / 2, BOARD_SIZE / 2)
-  createGridLines()
+  gridRoot = createGridLines()
 
   engine.addSystem(waterScrollSystem)
-  engine.addSystem(avatarFollowSystem)
-  engine.addSystem(cameraFollowSystem)
+  engine.addSystem(worldShiftSystem)
+  engine.addSystem(inputSystem_)
   engine.addSystem(sharkVisualSystem)
   engine.addSystem(pickupVisualSystem)
+  engine.addSystem(fakeAvatarSystem)
+  engine.addSystem(audioSystem)
+  startAmbient()
 }
 
-// --- avatar follow: hop to the server-authoritative cell via movePlayerTo ---
-// (direct Transform writes on PlayerEntity are ignored by the client)
-let lastCell = ''
-
-function avatarFollowSystem(_dt: number): void {
-  const slot = mySlot()
-  if (!slot || slot.dead) return
-
-  const key = `${slot.cellI},${slot.cellJ}`
-  if (key === lastCell) return
-  const first = lastCell === ''
-  lastCell = key
-  movePlayerTo({
-    newRelativePosition: Vector3.create(cellCenter(slot.cellI), 0, cellCenter(slot.cellJ)),
-    duration: first ? undefined : 0.25 // client-side interpolated hop
-  }).catch(() => {})
+// World slides toward its target; hop animation advances. Grid moves as one
+// parented root.
+function worldShiftSystem(dt: number): void {
+  const k = Math.min(1, dt / 0.22)
+  const ease = k * k * (3 - 2 * k)
+  worldOffset.x += (worldTarget.x - worldOffset.x) * ease
+  worldOffset.z += (worldTarget.z - worldOffset.z) * ease
+  if (gridRoot) {
+    Transform.createOrReplace(gridRoot, { position: Vector3.create(worldOffset.x, 0, worldOffset.z) })
+  }
+  if (hop.active) {
+    hop.k += dt / HOP_TIME
+    if (hop.k >= 1) hop.active = false
+  }
 }
 
-// --- shark visuals: fin, telegraph patch, breach head per synced shark ---
+// Static tile index for content relative to the board center (the player is
+// always rendered there).
+function tileOffset(entityPos: number): number {
+  return Math.round((BOARD_SIZE / 2 - entityPos) / BOARD_SIZE) * BOARD_SIZE
+}
+
+// --- shark visuals: fin, telegraph cells, breach head per synced shark ---
 interface SharkVisual {
   fin: Entity
-  telegraph: Entity
+  telegraph: Entity[] // 9 border planes, one per threatened cell
   head: Entity
   phase: string
   attackK: number
@@ -162,9 +142,27 @@ function ensureVisual(shark: Entity): SharkVisual {
       metallic: 0.1,
       roughness: 0.6
     })
-    Transform.create(fin, { scale: Vector3.create(1.4, 2, 3) })
+    Transform.create(fin, { scale: Vector3.create(0.7, 1.1, 1.8) })
 
-    const telegraph = makeBox(Color4.create(1, 0.1, 0.1, 0.35))
+    // One outlined-cell marker per threatened grid cell.
+    const telegraph: Entity[] = []
+    for (let k = 0; k < 9; k++) {
+      const cell = engine.addEntity()
+      MeshRenderer.setPlane(cell)
+      Material.setPbrMaterial(cell, {
+        texture: Material.Texture.Common({ src: 'assets/images/ui/cell-border.png' }),
+        albedoColor: Color4.create(1, 0.15, 0.15, 1),
+        emissiveColor: Color3.create(1, 0.1, 0.1),
+        emissiveIntensity: 0.9,
+        transparencyMode: MaterialTransparencyMode.MTM_ALPHA_BLEND,
+        castShadows: false
+      })
+      Transform.create(cell, {
+        rotation: Quaternion.fromEulerDegrees(-90, 0, 0),
+        scale: Vector3.Zero()
+      })
+      telegraph.push(cell)
+    }
 
     const head = engine.addEntity()
     MeshRenderer.setSphere(head)
@@ -220,9 +218,14 @@ function sharkVisualSystem(dt: number): void {
       v.attackK = 0
     }
 
+    const baseX = cellCenter(shark.cellI)
+    const baseZ = cellCenter(shark.cellJ)
+    const ox = tileOffset(baseX) + worldOffset.x
+    const oz = tileOffset(baseZ) + worldOffset.z
+
     const finT = Transform.getMutable(v.fin)
-    const targetX = cellCenter(shark.cellI)
-    const targetZ = cellCenter(shark.cellJ)
+    const targetX = baseX + ox
+    const targetZ = baseZ + oz
     const bob = Math.sin(animClock * 6) * 0.1
 
     if (shark.phase === 'attack') {
@@ -233,11 +236,11 @@ function sharkVisualSystem(dt: number): void {
 
       const c = zoneCenter(shark.cellI, shark.cellJ, shark.dirX, shark.dirZ)
       Transform.createOrReplace(v.head, {
-        position: Vector3.create(c.x, headY(v.attackK), c.z),
+        position: Vector3.create(c.x + ox, headY(v.attackK), c.z + oz),
         rotation: Quaternion.fromEulerDegrees(0, yaw(shark.dirX, shark.dirZ), 0),
-        scale: Vector3.create(CELL * 1.2, CELL * 0.9, CELL * 1.4)
+        scale: Vector3.create(CELL * 0.8, CELL * 0.55, CELL)
       })
-      Transform.getMutable(v.telegraph).scale = Vector3.Zero()
+      hideTelegraph(v)
     } else {
       // Cruise: ease toward the cell, bob, face the swim direction.
       const k = Math.min(1, dt / 0.25)
@@ -248,18 +251,26 @@ function sharkVisualSystem(dt: number): void {
       Transform.getMutable(v.head).scale = Vector3.Zero()
 
       if (shark.phase === 'telegraph') {
-        const c = zoneCenter(shark.cellI, shark.cellJ, shark.dirX, shark.dirZ)
-        Transform.createOrReplace(v.telegraph, {
-          position: Vector3.create(c.x, WATER_Y + 0.05, c.z),
-          rotation: Quaternion.fromEulerDegrees(0, yaw(shark.dirX, shark.dirZ), 0),
-          scale: Vector3.create(3 * CELL, 0.1, 3 * CELL)
-        })
+        // Outline exactly the 9 threatened cells.
+        const cells = attackCells(shark.cellI, shark.cellJ, shark.dirX, shark.dirZ)
+        for (let k = 0; k < 9; k++) {
+          const [ci, cj] = cells[k]
+          Transform.createOrReplace(v.telegraph[k], {
+            position: Vector3.create(cellCenter(ci) + ox, WATER_Y + 0.06, cellCenter(cj) + oz),
+            rotation: Quaternion.fromEulerDegrees(-90, 0, 0),
+            scale: Vector3.create(CELL, CELL, 1)
+          })
+        }
         finT.position.y += Math.sin(animClock * 30) * 0.06
       } else {
-        Transform.getMutable(v.telegraph).scale = Vector3.Zero()
+        hideTelegraph(v)
       }
     }
   }
+}
+
+function hideTelegraph(v: SharkVisual): void {
+  for (const cell of v.telegraph) Transform.getMutable(cell).scale = Vector3.Zero()
 }
 
 // --- pickup visuals: coin / life-buoy per synced pickup, hidden when taken ---
@@ -289,9 +300,74 @@ function pickupVisualSystem(): void {
       }
       pickupVisuals.set(entity, visual)
     }
+    const baseX = cellCenter(pickup.cellI)
+    const baseZ = cellCenter(pickup.cellJ)
     Transform.createOrReplace(visual, {
-      position: Vector3.create(cellCenter(pickup.cellI), WATER_Y + 0.4, cellCenter(pickup.cellJ)),
+      position: Vector3.create(baseX + tileOffset(baseX) + worldOffset.x, WATER_Y + 0.4, baseZ + tileOffset(baseZ) + worldOffset.z),
       scale: pickup.taken ? Vector3.Zero() : Vector3.create(1, 1, 1)
     })
+  }
+}
+
+// --- fake avatars: one AvatarShape per player slot at their game cell ---
+const avatarVisuals = new Map<Entity, { entity: Entity; profileKey: string }>()
+
+// Synced Schemas.Array arrives as a non-plain structure; normalize to a fresh
+// mutable string[] or AvatarShape.encode crashes the scene update loop.
+function wearablesOf(slot: { wearables: unknown }): string[] {
+  const w = slot.wearables
+  if (!w) return []
+  try {
+    return Array.from(w as Iterable<string>)
+  } catch {
+    return []
+  }
+}
+
+function fakeAvatarSystem(): void {
+  const mine = mySlot()
+  const hopOff = hopOffset()
+
+  for (const [entity, slot] of engine.getEntitiesWith(PlayerSlot)) {
+    const profileKey = slot.bodyShape + slot.name + wearablesOf(slot).join(',')
+    let visual = avatarVisuals.get(entity)
+    if (!visual || visual.profileKey !== profileKey) {
+      if (visual) engine.removeEntity(visual.entity)
+      const avatar = engine.addEntity()
+      AvatarShape.create(avatar, {
+        id: slot.address || 'player',
+        name: slot.name,
+        bodyShape: slot.bodyShape,
+        wearables: wearablesOf(slot),
+        emotes: [],
+        skinColor: slot.skinColor,
+        hairColor: slot.hairColor,
+        eyeColor: slot.eyesColor
+      })
+      visual = { entity: avatar, profileKey }
+      avatarVisuals.set(entity, visual)
+    }
+
+    const baseX = cellCenter(slot.cellI)
+    const baseZ = cellCenter(slot.cellJ)
+    const isMine = mine !== null && slot.address === mine.address
+    const hx = isMine ? hopOff.x : 0
+    const hz = isMine ? hopOff.z : 0
+    Transform.createOrReplace(visual.entity, {
+      position: Vector3.create(
+        baseX + tileOffset(baseX) + worldOffset.x + hx,
+        slot.dead ? -3 : 0, // standing on the floor; water hits chest-high
+        baseZ + tileOffset(baseZ) + worldOffset.z + hz
+      ),
+      scale: slot.dead ? Vector3.Zero() : Vector3.create(1, 1, 1)
+    })
+  }
+
+  // Cleanup visuals of removed slots.
+  for (const [entity, visual] of avatarVisuals) {
+    if (!PlayerSlot.getOrNull(entity)) {
+      engine.removeEntity(visual.entity)
+      avatarVisuals.delete(entity)
+    }
   }
 }
