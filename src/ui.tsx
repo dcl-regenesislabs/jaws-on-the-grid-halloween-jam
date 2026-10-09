@@ -40,7 +40,7 @@ const uiComponent = () => (
         uiBackground={{
           textureMode: 'center',
           texture: {
-            src: 'images/scene-thumbnail.png',
+            src: 'assets/images/jaws-on-the-grid-thumbnail-en.png',
           },
         }}
         uiText={{ value: 'SDK7', fontSize: 18 }}
@@ -76,4 +76,3 @@ function getPlayerPosition() {
   const { x, y, z } = playerPosition.position
   return `{X: ${x.toFixed(2)}, Y: ${y.toFixed(2)}, z: ${z.toFixed(2)} }`
 }
-

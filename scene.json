@@ -2,9 +2,9 @@
   "ecs7": true,
   "runtimeVersion": "7",
   "display": {
-    "title": "SDK7 Scene Template",
-    "description": "template scene with SDK7",
-    "navmapThumbnail": "images/scene-thumbnail.png",
+    "title": "JAWS ON THE GRID",
+    "description": "Dodge sharks and survive the ocean grid in this multiplayer horror game.",
+    "navmapThumbnail": "assets/images/jaws-on-the-grid-thumbnail-en.png",
     "favicon": "favicon_asset"
   },
   "owner": "",

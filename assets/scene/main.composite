@@ -314,9 +314,9 @@
       "data": {
         "0": {
           "json": {
-            "name": "SDK7 Scene Template",
-            "description": "template scene with SDK7",
-            "thumbnail": "images/scene-thumbnail.png",
+            "name": "JAWS ON THE GRID",
+            "description": "Dodge sharks and survive the ocean grid in this multiplayer horror game.",
+            "thumbnail": "assets/images/jaws-on-the-grid-thumbnail-en.png",
             "categories": [],
             "author": "SDK",
             "email": "",

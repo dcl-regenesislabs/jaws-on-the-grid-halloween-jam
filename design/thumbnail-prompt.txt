@@ -1,0 +1,13 @@
+JAWS ON THE GRID scene thumbnail
+
+Asset: assets/images/jaws-on-the-grid-thumbnail-en.png
+Created with the built-in image generation tool.
+Selected by the user as the scene thumbnail and referenced in scene.json.
+
+Artwork brief:
+Cinematic Jaws-inspired horror poster for a Decentraland multiplayer shark-survival game. A giant great white shark bursts from a dark ocean, with two frightened avatars, luminous cyan grid lines, distant fins, a tropical shore and moonlit storm clouds. Landscape composition in approximately the recommended 228:160 thumbnail ratio.
+
+English lettering:
+JAWS: large, centered, distressed ivory horror lettering.
+ON THE GRID: red second line.
+DECENTRALAND: white branding at the bottom.
