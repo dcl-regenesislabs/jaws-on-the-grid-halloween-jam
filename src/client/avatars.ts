@@ -18,6 +18,12 @@ const FLOAT = 'assets/animations/float_emote.glb'
 const GLIDE_TIME = 0.45 // s for a whole planned path (fits the 0.5 s execution)
 const SWIM_HOLD = 0.7 // s of swim before settling into float
 const FLOAT_LOOP = 1.6 // clip length; re-triggered so it keeps treading
+// The swim clip lays the body flat with the hips ~0.70 m above the avatar's
+// origin (float keeps them ~0.94 m up, upright). At neck depth that sinks a
+// swimmer ~0.5 m under the opaque water, so lift it to the surface while
+// swimming, easing in and out.
+const SWIM_LIFT = 0.45
+const LIFT_EASE = 0.15 // s
 
 // The AvatarShape sits at the origin of a parent "mover" that we slide each
 // frame. Changing an AvatarShape's own Transform makes the client walk it
@@ -31,6 +37,7 @@ interface Swimmer {
   toX: number
   toZ: number
   t: number // seconds since the last cell change
+  lift: number // current extra height (SWIM_LIFT while swimming)
   yaw: number
   emote: string
   emoteAt: number
@@ -132,7 +139,7 @@ function swimmerSystem(dt: number): void {
         eyeColor: slot.eyesColor
       })
       Transform.create(entity, { parent: mover })
-      s = { mover, entity, profileKey, points: [point(cell.i, cell.j)], toX: x, toZ: z, t: GLIDE_TIME, yaw: 0, emote: '', emoteAt: 0, stamp: 0 }
+      s = { mover, entity, profileKey, points: [point(cell.i, cell.j)], toX: x, toZ: z, t: GLIDE_TIME, lift: 0, yaw: 0, emote: '', emoteAt: 0, stamp: 0 }
       swimmers.set(slotEntity, s)
       if (!onRaft) play(s, FLOAT)
     }
@@ -148,7 +155,7 @@ function swimmerSystem(dt: number): void {
       const startJ = cell.j - dj
       const fromPath = path.length > 0 && Math.abs(cellCenter(startI) - pos.x) + Math.abs(cellCenter(startJ) - pos.z) < CELL
       const near = Math.abs(x - pos.x) + Math.abs(z - pos.z) <= CELL + 0.1
-      const here = { x: pos.x, y: pos.y, z: pos.z }
+      const here = { x: pos.x, y: pos.y - s.lift, z: pos.z } // path heights exclude the swim lift
       if (fromPath) s.points = [here, ...pathCells(startI, startJ, path).map(([i, j]) => point(i, j))]
       else if (near) s.points = [here, point(cell.i, cell.j)]
       else s.points = [point(cell.i, cell.j)]
@@ -169,8 +176,10 @@ function swimmerSystem(dt: number): void {
     const b = s.points[Math.min(at + 1, segs)]
     const f = segs > 0 ? e * segs - at : 1
     if (b.x !== a.x || b.z !== a.z) s.yaw = (Math.atan2(b.x - a.x, b.z - a.z) * 180) / Math.PI
+    const liftTarget = s.emote === SWIM ? SWIM_LIFT : 0
+    s.lift += (liftTarget - s.lift) * Math.min(1, dt / LIFT_EASE)
     Transform.createOrReplace(s.mover, {
-      position: Vector3.create(a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f, a.z + (b.z - a.z) * f),
+      position: Vector3.create(a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f + s.lift, a.z + (b.z - a.z) * f),
       rotation: Quaternion.fromEulerDegrees(0, s.yaw, 0),
       scale: slot.dead ? Vector3.Zero() : Vector3.One()
     })
