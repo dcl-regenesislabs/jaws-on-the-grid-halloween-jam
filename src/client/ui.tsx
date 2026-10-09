@@ -50,6 +50,7 @@ export function setupUi() {
   ReactEcsRenderer.addUiRenderer(engine.addEntity(), vignette, { screenInset: 'none', zIndex: 0 })
   // D-pad in the device safe area: nearer the left thumb than the
   // interactable area, which starts right of the Explorer's left controls.
+  ReactEcsRenderer.addUiRenderer(engine.addEntity(), centerHud, { screenInset: 'device', zIndex: 15 })
   ReactEcsRenderer.addUiRenderer(engine.addEntity(), movePad, { screenInset: 'device', zIndex: 20 })
   // No server / guest account: full-screen blockers over everything,
   // Explorer areas included.
@@ -142,32 +143,32 @@ function Stats(props: { score: number; lives: number; harbor: boolean; tier: num
     <UiEntity
       uiTransform={{
         positionType: 'absolute',
-        position: { top: 16, left: 30 },
+        position: { top: 0, left: 0 },
         flexDirection: 'column',
         alignItems: 'flex-start'
       }}
     >
       <UiEntity
         uiTransform={{
-          height: 64,
+          height: 56,
           flexDirection: 'row',
           alignItems: 'center',
-          padding: { left: 10, right: 18 },
+          padding: { left: 8, right: 12 },
           borderRadius: 32,
           borderWidth: 2,
           borderColor: EDGE
         }}
         uiBackground={{ color: INK }}
       >
-        <Icon src={ICON.coin} size={46} />
-        <Label value={`${props.score}`} fontSize={30} color={GOLD} textAlign="middle-left" uiTransform={{ width: 84, height: 50, margin: { left: 8 } }} />
-        <Icon src={ICON.buoy} size={38} margin={{ left: 6 }} />
-        <Label value={`x${props.lives}`} fontSize={26} color={WHITE} textAlign="middle-left" uiTransform={{ width: 52, height: 50, margin: { left: 6 } }} />
+        <Icon src={ICON.coin} size={40} />
+        <Label value={`${props.score}`} fontSize={26} color={GOLD} textAlign="middle-left" uiTransform={{ width: 62, height: 46, margin: { left: 6 } }} />
+        <Icon src={ICON.buoy} size={32} margin={{ left: 2 }} />
+        <Label value={`x${props.lives}`} fontSize={22} color={WHITE} textAlign="middle-left" uiTransform={{ width: 40, height: 46, margin: { left: 4 } }} />
       </UiEntity>
       <UiEntity
         uiTransform={{
           height: 34,
-          margin: { top: 8, left: 6 },
+          margin: { top: 6 },
           flexDirection: 'row',
           alignItems: 'center',
           padding: { left: 6, right: 14 },
@@ -193,12 +194,12 @@ function Stats(props: { score: number; lives: number; harbor: boolean; tier: num
 // --- top-center: whose turn, time left, move state ---
 function TurnPill(props: { playersTurn: boolean; remaining: number; status: string; statusColor: Color4 }) {
   const color = props.playersTurn ? MINT : CORAL
-  const W = 300
+  const W = 260
   return (
     <UiEntity
       uiTransform={{
         positionType: 'absolute',
-        position: { top: 16, left: '50%' },
+        position: { top: 0, left: '50%' },
         margin: { left: -W / 2 },
         width: W,
         flexDirection: 'column',
@@ -220,7 +221,7 @@ function TurnPill(props: { playersTurn: boolean; remaining: number; status: stri
       >
         <UiEntity uiTransform={{ height: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
           {!props.playersTurn && <Icon src={ICON.fin} size={34} margin={{ right: 8 }} />}
-          <Label value={props.playersTurn ? 'PICK A MOVE' : 'GO!'} fontSize={30} color={props.playersTurn ? color : WHITE} textAlign="middle-center" uiTransform={{ width: 200, height: 40 }} />
+          <Label value={props.playersTurn ? 'PICK A MOVE' : 'GO!'} fontSize={26} color={props.playersTurn ? color : WHITE} textAlign="middle-center" uiTransform={{ width: 180, height: 40 }} />
         </UiEntity>
         <UiEntity uiTransform={{ width: W - 48, height: 8, margin: { top: 6 }, borderRadius: 4 }} uiBackground={{ color: rgba(1, 1, 1, 0.12) }}>
           <UiEntity
@@ -245,7 +246,7 @@ function RaftHint() {
     <UiEntity
       uiTransform={{
         positionType: 'absolute',
-        position: { bottom: 24, left: '50%' },
+        position: { bottom: 16, left: '50%' },
         margin: { left: -230 },
         width: 460,
         flexDirection: 'column',
@@ -274,7 +275,7 @@ function LaneWarning() {
     <UiEntity
       uiTransform={{
         positionType: 'absolute',
-        position: { top: 160, left: '50%' },
+        position: { top: 132, left: '50%' },
         margin: { left: -170 },
         width: 340,
         height: 48,
@@ -363,7 +364,7 @@ function Radar(props: { ci: number; cj: number; myAddress: string }) {
     <UiEntity
       uiTransform={{
         positionType: 'absolute',
-        position: { top: 16, right: 16 },
+        position: { top: 0, right: 0 },
         width: RADAR + 8, // + padding 2 + border 2, both sides
         height: RADAR + 8,
         padding: 2,
@@ -474,7 +475,7 @@ function StepPips(props: { used: number; max: number }) {
     )
   }
   return (
-    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 128, left: '50%' }, margin: { left: -(props.max * 26) / 2 }, flexDirection: 'row' }}>
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 104, left: '50%' }, margin: { left: -(props.max * 26) / 2 }, flexDirection: 'row' }}>
       {pips}
     </UiEntity>
   )
@@ -490,7 +491,7 @@ function SlapButton() {
     <UiEntity
       uiTransform={{
         positionType: 'absolute',
-        position: { right: 24, bottom: 24 },
+        position: { right: 0, bottom: 0 },
         flexDirection: 'column',
         alignItems: 'center'
       }}
@@ -600,9 +601,8 @@ function ConnectionError() {
   )
 }
 
-const uiComponent = () => {
-  if (serverLost() || isGuest()) return null
-
+// Per-frame HUD state shared by the interactable-area and centered layers.
+function hudState() {
   const slot = mySlot()
   const { phase } = gameState()
   const playersTurn = phase === 'players'
@@ -615,9 +615,6 @@ const uiComponent = () => {
   const harbor = cell ? inHarbor(cell.i, cell.j) : true
   const tier = cell ? tierOf(cell.i, cell.j) : 0
   const remaining = Math.max(0, 1 - phaseElapsed() / (playersTurn ? PLAYERS_TIME : SHARKS_TIME))
-
-  if (!dead && wasDead) savedScore = false
-  wasDead = dead
 
   let status = 'SWIM!'
   let statusColor = MUTED
@@ -637,16 +634,36 @@ const uiComponent = () => {
     }
   }
 
+  return { slot, playersTurn, dead, stunned, cell, plan, maxSteps, harbor, tier, remaining, status, statusColor }
+}
+
+// Interactable area: corner widgets, flush with its edges (the area already
+// keeps clear of the Explorer's own controls).
+const uiComponent = () => {
+  if (serverLost() || isGuest()) return null
+  const h = hudState()
   return (
     <UiEntity uiTransform={{ width: '100%', height: '100%' }} uiBackground={{ color: CLEAR }}>
-      <Stats score={slot?.score ?? 0} lives={slot?.extraLives ?? 0} harbor={harbor} tier={tier} />
-      <TurnPill playersTurn={playersTurn} remaining={remaining} status={status} statusColor={statusColor} />
-      {playersTurn && !dead && !stunned && <StepPips used={plan.length} max={maxSteps} />}
-      {playersTurn && !dead && myTargetInDanger() && <LaneWarning />}
-      {harbor && !dead && <RaftHint />}
-      {slot && cell && <Radar ci={cell.i} cj={cell.j} myAddress={slot.address} />}
-      {!dead && <SlapButton />}
-      {dead && <DeathCard score={slot?.score ?? 0} />}
+      <Stats score={h.slot?.score ?? 0} lives={h.slot?.extraLives ?? 0} harbor={h.harbor} tier={h.tier} />
+      {h.slot && h.cell && <Radar ci={h.cell.i} cj={h.cell.j} myAddress={h.slot.address} />}
+      {!h.dead && <SlapButton />}
+    </UiEntity>
+  )
+}
+
+// Device safe area: menus centered on the actual screen.
+const centerHud = () => {
+  if (serverLost() || isGuest()) return null
+  const h = hudState()
+  if (!h.dead && wasDead) savedScore = false
+  wasDead = h.dead
+  return (
+    <UiEntity uiTransform={{ width: '100%', height: '100%' }} uiBackground={{ color: CLEAR }}>
+      <TurnPill playersTurn={h.playersTurn} remaining={h.remaining} status={h.status} statusColor={h.statusColor} />
+      {h.playersTurn && !h.dead && !h.stunned && <StepPips used={h.plan.length} max={h.maxSteps} />}
+      {h.playersTurn && !h.dead && myTargetInDanger() && <LaneWarning />}
+      {h.harbor && !h.dead && <RaftHint />}
+      {h.dead && <DeathCard score={h.slot?.score ?? 0} />}
     </UiEntity>
   )
 }
