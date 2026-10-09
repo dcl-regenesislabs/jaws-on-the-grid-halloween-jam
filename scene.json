@@ -48,5 +48,8 @@
   "featureToggles": {
     "voiceChat": "enabled",
     "portableExperiences": "enabled"
+  },
+  "worldConfiguration": {
+    "name": "kuruk.dcl.eth"
   }
 }
