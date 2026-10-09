@@ -3,9 +3,10 @@ import { Color4 } from '@dcl/sdk/math'
 import ReactEcs, { Label, ReactEcsRenderer, UiEntity } from '@dcl/sdk/react-ecs'
 
 import { Pickup, PlayerSlot } from '../shared/components'
-import { ATTACK_COOLDOWN, CENTER_CELL, HARBOR_RADIUS, PLAYERS_TIME, SHARKS_TIME, inHarbor, tierOf } from '../shared/config'
+import { CENTER_CELL, HARBOR_RADIUS, PLAYERS_TIME, SHARKS_TIME, inHarbor, tierOf } from '../shared/config'
 import { room } from '../shared/messages'
-import { gameState, myCellInDanger, mySlot, phaseElapsed } from './render'
+import { canMoveNow, requestMove, requestSlap, slapCooldownLeft } from './input'
+import { gameState, myCell, myCellInDanger, mySlot, phaseElapsed } from './state'
 
 // HUD for a 1600×720 mobile canvas, inside the interactable area (clear of
 // the Explorer's own left-hand controls). Layout:
@@ -31,7 +32,6 @@ engine.addSystem((dt) => {
 
 let savedScore = false
 let wasDead = false
-let lastSlapAt = -999
 let pressedKey = ''
 let pressedAt = -999
 
@@ -45,8 +45,15 @@ function isPressed(key: string): boolean {
 }
 
 export function setupUi() {
-  ReactEcsRenderer.setUiRenderer(uiComponent, { screenInset: 'interactable' })
+  ReactEcsRenderer.setUiRenderer(uiComponent, { screenInset: 'interactable', zIndex: 10 })
+  // Full-screen red wash while the sharks strike (outside the inset area).
+  ReactEcsRenderer.addUiRenderer(engine.addEntity(), vignette, { screenInset: 'none', zIndex: 0 })
 }
+
+const vignette = () =>
+  gameState().phase === 'sharks' ? (
+    <UiEntity uiTransform={{ width: '100%', height: '100%' }} uiBackground={{ color: Color4.create(0.6, 0, 0.02, 0.16) }} />
+  ) : null
 
 // --- palette ---
 const rgba = (r: number, g: number, b: number, a = 1) => Color4.create(r, g, b, a)
@@ -321,7 +328,7 @@ function PadButton(props: { dir: string; icon: string; col: number; row: number;
       uiBackground={{ color: pressed ? rgba(0.36, 0.9, 0.92, 0.55) : INK }}
       onMouseDown={() => {
         press(props.dir)
-        room.send('move', { di: props.di, dj: props.dj })
+        requestMove(props.di, props.dj)
       }}
     >
       <Icon src={props.icon} size={44} />
@@ -343,7 +350,8 @@ function DPad(props: { enabled: boolean }) {
 
 // --- bottom-right: fish slap (stuns players next to you) ---
 function SlapButton(props: { enabled: boolean }) {
-  const cooling = uiClock - lastSlapAt < ATTACK_COOLDOWN
+  const cooldown = slapCooldownLeft()
+  const cooling = cooldown > 0
   const ready = props.enabled && !cooling
   const SIZE = 132
   return (
@@ -368,15 +376,12 @@ function SlapButton(props: { enabled: boolean }) {
         }}
         uiBackground={{ color: isPressed('slap') ? rgba(1, 0.84, 0.32, 0.45) : INK }}
         onMouseDown={() => {
-          if (!ready) return
-          press('slap')
-          lastSlapAt = uiClock
-          room.send('attack', {})
+          if (requestSlap()) press('slap')
         }}
       >
         <Icon src={ICON.fish} size={88} />
       </UiEntity>
-      <Label value={cooling ? `${Math.ceil(ATTACK_COOLDOWN - (uiClock - lastSlapAt))}` : 'SLAP'} fontSize={18} color={ready ? GOLD : MUTED} textAlign="middle-center" uiTransform={{ width: SIZE, height: 26, margin: { top: 4 } }} />
+      <Label value={cooling ? `${Math.ceil(cooldown)}` : 'SLAP'} fontSize={18} color={ready ? GOLD : MUTED} textAlign="middle-center" uiTransform={{ width: SIZE, height: 26, margin: { top: 4 } }} />
     </UiEntity>
   )
 }
@@ -471,10 +476,10 @@ const uiComponent = () => {
   const playersTurn = phase === 'players'
   const dead = slot?.dead ?? false
   const stunned = slot?.stunned ?? false
-  const movesLeft = slot?.movesLeft ?? 0
-  const canMove = playersTurn && !dead && !stunned && movesLeft > 0
-  const harbor = slot ? inHarbor(slot.cellI, slot.cellJ) : true
-  const tier = slot ? tierOf(slot.cellI, slot.cellJ) : 0
+  const cell = myCell()
+  const canMove = canMoveNow()
+  const harbor = cell ? inHarbor(cell.i, cell.j) : true
+  const tier = cell ? tierOf(cell.i, cell.j) : 0
   const remaining = Math.max(0, 1 - phaseElapsed() / (playersTurn ? PLAYERS_TIME : SHARKS_TIME))
 
   if (!dead && wasDead) savedScore = false
@@ -499,7 +504,7 @@ const uiComponent = () => {
       <Stats score={slot?.score ?? 0} lives={slot?.extraLives ?? 0} harbor={harbor} tier={tier} />
       <TurnPill playersTurn={playersTurn} remaining={remaining} status={status} statusColor={statusColor} />
       {playersTurn && !dead && myCellInDanger() && <LaneWarning />}
-      {slot && <Radar ci={slot.cellI} cj={slot.cellJ} myAddress={slot.address} />}
+      {slot && cell && <Radar ci={cell.i} cj={cell.j} myAddress={slot.address} />}
       {!dead && <DPad enabled={canMove} />}
       {!dead && <SlapButton enabled={!stunned} />}
       {dead && <DeathCard score={slot?.score ?? 0} />}

@@ -134,7 +134,13 @@ export function initServer() {
   room.onMessage('move', (data, context) => {
     if (phase !== 'players') return
     const found = senderSlot(context)
-    if (!found || found.slot.dead || found.slot.stunned || found.slot.movesLeft <= 0) return
+    if (!found || found.slot.dead || found.slot.stunned || found.slot.movesLeft <= 0) {
+      console.log(
+        '[server] move REJECTED',
+        found ? `dead=${found.slot.dead} stunned=${found.slot.stunned} moves=${found.slot.movesLeft}` : 'no-slot'
+      )
+      return
+    }
     const { di, dj } = data
     if (Math.abs(di) + Math.abs(dj) !== 1) return
     const ni = found.slot.cellI + di
@@ -236,9 +242,13 @@ function syncPlayerSlots() {
       syncEntity(slot, [PlayerSlot.componentId])
     }
   }
-  // Drop slots of players who left.
+  // Drop slots of players who left, and duplicates from reconnect flickers
+  // (keep the oldest per address).
+  const firstByAddress = new Set<string>()
   for (const [entity, slot] of engine.getEntitiesWith(PlayerSlot)) {
-    if (!seen.has(slot.address.toLowerCase())) engine.removeEntity(entity)
+    const key = slot.address.toLowerCase()
+    if (!seen.has(key) || firstByAddress.has(key)) engine.removeEntity(entity)
+    else firstByAddress.add(key)
   }
 }
 

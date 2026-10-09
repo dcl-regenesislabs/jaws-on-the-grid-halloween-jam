@@ -1,5 +1,4 @@
 import {
-  AudioSource,
   Entity,
   InputAction,
   InputModifier,
@@ -7,7 +6,6 @@ import {
   Material,
   MaterialTransparencyMode,
   MeshRenderer,
-  PlayerIdentityData,
   TouchScreenControls,
   Transform,
   VirtualCamera,
@@ -16,26 +14,25 @@ import {
 import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 import { movePlayerTo } from '~system/RestrictedActions'
 
-import { GameState, Pickup, PlayerSlot, Shark } from '../shared/components'
+import { Pickup, Shark } from '../shared/components'
 import {
   BOARD_SIZE,
   CELL,
   CENTER_CELL,
-  COIN_POINTS,
   HARBOR_RADIUS,
   SHARKS_TIME,
   VIEW_CELLS,
   WATER_Y,
   cellCenter
 } from '../shared/config'
+import { initAudio, sfx, SFX } from './audio'
+import { inputSystem_ } from './input'
+import { myCell, mySlot, phaseClockSystem } from './state'
 import { createBoardEdge, createGridWindow, createHarbor, createWaterFloor, gridWindowSystem, waterScrollSystem } from './water'
 
 // Everything presentation-only lives here: water, grid, camera, touch HUD
 // config, avatar follow, and shark/pickup visuals driven by synced state.
 
-// NOTE: no getPlayer() here — its internal getUserData promise rejects with
-// 'channel closed' on scene reloads and kills the scene's update loop.
-// The local address comes straight from PlayerIdentityData instead.
 let camEntity: Entity
 
 // x < 0 frames the avatar right of center, clear of the d-pad (bottom-left).
@@ -59,86 +56,6 @@ function cameraFollowSystem(dt: number): void {
   const k = Math.min(1, dt * 6)
   camT.position.x += dx * pull * k
   camT.position.z += dz * pull * k
-}
-
-function myAddress(): string {
-  return (PlayerIdentityData.getOrNull(engine.PlayerEntity)?.address ?? '').toLowerCase()
-}
-
-// My slot by wallet address. A lone slot is mine too (guest/review mode,
-// where the server may key slots by entity instead of address).
-export function mySlot(): ReturnType<typeof PlayerSlot.getOrNull> {
-  const address = myAddress()
-  let only: ReturnType<typeof PlayerSlot.getOrNull> = null
-  let count = 0
-  for (const [_e, slot] of engine.getEntitiesWith(PlayerSlot)) {
-    if (address && slot.address === address) return slot
-    only = slot
-    count++
-  }
-  return count === 1 ? only : null
-}
-
-export function gameState(): { phase: string; turn: number } {
-  for (const [_e, state] of engine.getEntitiesWith(GameState)) return state
-  return { phase: 'players', turn: 0 }
-}
-
-// Seconds since the current phase started, measured locally.
-let phaseKey = ''
-let phaseClock = 0
-
-export function phaseElapsed(): number {
-  return phaseClock
-}
-
-function phaseClockSystem(dt: number): void {
-  const state = gameState()
-  const key = `${state.phase}:${state.turn}`
-  if (key !== phaseKey) {
-    phaseKey = key
-    phaseClock = 0
-    if (state.phase === 'players') sfx(SFX.turn, 0.5)
-    else sfx(SFX.sharks, 0.6)
-  } else {
-    phaseClock += dt
-  }
-}
-
-// Is my cell on a shark's lane right now?
-export function myCellInDanger(): boolean {
-  const slot = mySlot()
-  if (!slot || slot.dead) return false
-  for (const [_e, s] of engine.getEntitiesWith(Shark)) {
-    if (!s.active || s.phase !== 'plan' || s.len <= 0) continue
-    for (let k = 0; k <= s.len; k++) {
-      if (s.cellI + s.dirX * k === slot.cellI && s.cellJ + s.dirZ * k === slot.cellJ) return true
-    }
-  }
-  return false
-}
-
-// --- sound cues: one global source per cue so they can overlap ---
-const SFX = {
-  turn: 'assets/sounds/kenney-interface/tick_002.mp3',
-  sharks: 'assets/sounds/kenney-interface/drop_002.mp3',
-  hop: 'assets/sounds/kenney-interface/select_001.mp3',
-  coin: 'assets/sounds/kenney-interface/confirmation_001.mp3',
-  life: 'assets/sounds/kenney-interface/maximize_003.mp3',
-  saved: 'assets/sounds/kenney-interface/glass_002.mp3',
-  bite: 'assets/sounds/big-water-splash.mp3'
-}
-const sfxEntities = new Map<string, Entity>()
-
-function sfx(src: string, volume = 1): void {
-  let e = sfxEntities.get(src)
-  if (!e) {
-    e = engine.addEntity()
-    Transform.create(e, {})
-    AudioSource.create(e, { audioClipUrl: src, playing: false, loop: false, volume, global: true })
-    sfxEntities.set(src, e)
-  }
-  AudioSource.playSound(e, src)
 }
 
 export function initClient() {
@@ -185,22 +102,14 @@ export function initClient() {
   createBoardEdge()
   createMyCellMarker()
 
-  // Ambient sea, quiet so the turn cues cut through.
-  const ocean = engine.addEntity()
-  Transform.create(ocean, {})
-  AudioSource.create(ocean, {
-    audioClipUrl: 'assets/sounds/ocean-waves.mp3',
-    playing: true,
-    loop: true,
-    volume: 0.25,
-    global: true
-  })
+  initAudio()
 
   engine.addSystem(phaseClockSystem)
+  engine.addSystem(inputSystem_)
   engine.addSystem(waterScrollSystem)
   engine.addSystem(() => {
-    const slot = mySlot()
-    if (slot) gridWindowSystem(slot.cellI, slot.cellJ)
+    const cell = myCell()
+    if (cell) gridWindowSystem(cell.i, cell.j)
   })
   engine.addSystem(avatarFollowSystem)
   engine.addSystem(myCellMarkerSystem)
@@ -209,38 +118,23 @@ export function initClient() {
   engine.addSystem(pickupVisualSystem)
 }
 
-// --- avatar follow: hop to the server-authoritative cell via movePlayerTo ---
+// --- avatar follow: hop to my (predicted) cell via movePlayerTo ---
 // (direct Transform writes on PlayerEntity are ignored by the client)
 let lastI = -1
 let lastJ = -1
-let lastScore = 0
-let lastLives = 0
-let lastDead = false
 
 function avatarFollowSystem(_dt: number): void {
   const slot = mySlot()
-  if (!slot) return
-
-  // Feedback cues from my own slot's changes.
-  if (slot.dead && !lastDead) sfx(SFX.bite)
-  if (!slot.dead) {
-    if (slot.extraLives > lastLives) sfx(SFX.life)
-    else if (slot.extraLives < lastLives) sfx(SFX.saved)
-    if (slot.score - lastScore >= COIN_POINTS) sfx(SFX.coin, 0.8)
-  }
-  lastDead = slot.dead
-  lastLives = slot.extraLives
-  lastScore = slot.score
-  if (slot.dead) return
-
-  if (slot.cellI === lastI && slot.cellJ === lastJ) return
+  const cell = myCell()
+  if (!slot || !cell || slot.dead) return
+  if (cell.i === lastI && cell.j === lastJ) return
   // Teleport on spawn/respawn; hop between neighbouring cells.
-  const jump = lastI < 0 || Math.abs(slot.cellI - lastI) + Math.abs(slot.cellJ - lastJ) > 1
+  const jump = lastI < 0 || Math.abs(cell.i - lastI) + Math.abs(cell.j - lastJ) > 1
   if (!jump) sfx(SFX.hop, 0.4)
-  lastI = slot.cellI
-  lastJ = slot.cellJ
+  lastI = cell.i
+  lastJ = cell.j
   movePlayerTo({
-    newRelativePosition: Vector3.create(cellCenter(slot.cellI), 0, cellCenter(slot.cellJ)),
+    newRelativePosition: Vector3.create(cellCenter(cell.i), 0, cellCenter(cell.j)),
     duration: jump ? undefined : 0.2 // client-side interpolated hop
   }).catch(() => {})
 }
@@ -272,13 +166,14 @@ function createMyCellMarker(): void {
 
 function myCellMarkerSystem(dt: number): void {
   const slot = mySlot()
+  const cell = myCell()
   const t = Transform.getMutable(myMarker)
-  if (!slot || slot.dead) {
+  if (!slot || !cell || slot.dead) {
     t.scale = HIDDEN
     return
   }
-  const x = cellCenter(slot.cellI)
-  const z = cellCenter(slot.cellJ)
+  const x = cellCenter(cell.i)
+  const z = cellCenter(cell.j)
   const first = t.scale.x === 0
   const k = first ? 1 : Math.min(1, dt / 0.08)
   t.position = Vector3.create(

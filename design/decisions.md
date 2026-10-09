@@ -38,3 +38,20 @@
   pickups appear around players as they swim; the 800 m edge is the limit.
 - Global turns: players 2 s, then sharks 0.5 s with nobody moving.
 - Movement stays grid d-pad (chosen over free joystick + freeze).
+
+## 2026-10-09 — Merge with Manu's parallel refactor (8bdd87d) (Kuruk)
+
+Kuruk asked to merge Manu's work into the global-turns version. Kept the
+global-turns design (Kuruk's decisions above); ported from Manu:
+- client prediction (hop on tap; server confirms or snaps back), desktop
+  WASD/arrows + E as optional extras (keyboard under `disableAll` unverified);
+- server slot dedupe on reconnect + move-reject logging;
+- red full-screen wash during the sharks' turn;
+- Jaws loops, now chosen by depth (harbor calm → climax); 0.5 s phases are
+  too short to swap tracks. Game-use permission still unresolved (references.md);
+- preview tooling: MP server as a supervised separate process (also in the
+  Windows script).
+Not ported (assistant proposal, accepted by Kuruk's merge request): world-shift
+8×8 tiling and AvatarShape copies (needed only because world-shift parks every
+real avatar at the center; real avatars move on the real board here), 10 s /
+3-move turns, telegraph-then-attack. `fist.png` and `cell-border.png` kept unused.
