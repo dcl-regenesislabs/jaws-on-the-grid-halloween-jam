@@ -5,8 +5,8 @@ import ReactEcs, { Label, ReactEcsRenderer, UiEntity } from '@dcl/sdk/react-ecs'
 import { Pickup, PlayerSlot } from '../shared/components'
 import { CENTER_CELL, HARBOR_RADIUS, PLAYERS_TIME, SHARKS_TIME, inHarbor, tierOf } from '../shared/config'
 import { room } from '../shared/messages'
-import { canPickNow, canSlapNow, requestPick, requestSlap, slapCooldownLeft } from './input'
-import { gameState, myCell, myPick, myTargetInDanger, mySlot, phaseElapsed } from './state'
+import { canPlanNow, canSlapNow, canStep, requestCancel, requestSlap, requestStep, slapCooldownLeft } from './input'
+import { gameState, myCell, myMaxSteps, myPlan, myTargetInDanger, mySlot, phaseElapsed } from './state'
 
 // HUD for a 1600×720 mobile canvas, inside the interactable area (clear of
 // the Explorer's own left-hand controls). Layout:
@@ -59,7 +59,7 @@ const movePad = () => {
   if (!slot || slot.dead) return null
   return (
     <UiEntity uiTransform={{ width: '100%', height: '100%' }}>
-      <DPad enabled={canPickNow()} />
+      <DPad />
     </UiEntity>
   )
 }
@@ -210,7 +210,7 @@ function LaneWarning() {
     <UiEntity
       uiTransform={{
         positionType: 'absolute',
-        position: { top: 136, left: '50%' },
+        position: { top: 160, left: '50%' },
         margin: { left: -170 },
         width: 340,
         height: 48,
@@ -324,10 +324,10 @@ const PAD = 92
 const PAD_GAP = 6
 const DPAD_LEFT = 40
 
-function PadButton(props: { dir: string; icon: string; col: number; row: number; di: number; dj: number; enabled: boolean }) {
+function PadButton(props: { dir: string; icon: string; col: number; row: number; code: number }) {
   const pressed = isPressed(props.dir)
-  const pick = myPick()
-  const picked = props.enabled && pick.di === props.di && pick.dj === props.dj
+  const enabled = canStep(props.code)
+  const picked = canPlanNow() && myPlan().includes(props.code)
   return (
     <UiEntity
       uiTransform={{
@@ -339,13 +339,13 @@ function PadButton(props: { dir: string; icon: string; col: number; row: number;
         justifyContent: 'center',
         borderRadius: PAD / 2,
         borderWidth: picked ? 4 : 2,
-        borderColor: picked ? GOLD : props.enabled ? AQUA : EDGE,
-        opacity: props.enabled ? 1 : 0.45
+        borderColor: picked ? GOLD : enabled ? AQUA : EDGE,
+        opacity: enabled || picked ? 1 : 0.45
       }}
       uiBackground={{ color: picked ? rgba(1, 0.84, 0.32, 0.5) : pressed ? rgba(0.36, 0.9, 0.92, 0.55) : INK }}
       onMouseDown={() => {
         press(props.dir)
-        requestPick(props.di, props.dj)
+        requestStep(props.code)
       }}
     >
       <Icon src={props.icon} size={44} />
@@ -353,15 +353,64 @@ function PadButton(props: { dir: string; icon: string; col: number; row: number;
   )
 }
 
-function DPad(props: { enabled: boolean }) {
+// Center of the cross: wipes the whole plan (you stay put).
+function CancelButton() {
+  const SIZE = 64
+  const enabled = canPlanNow() && myPlan().length > 0
+  return (
+    <UiEntity
+      uiTransform={{
+        positionType: 'absolute',
+        position: { left: PAD + PAD_GAP + (PAD - SIZE) / 2, top: PAD + PAD_GAP + (PAD - SIZE) / 2 },
+        width: SIZE,
+        height: SIZE,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: SIZE / 2,
+        borderWidth: 2,
+        borderColor: enabled ? CORAL : EDGE,
+        opacity: enabled ? 1 : 0.35
+      }}
+      uiBackground={{ color: isPressed('cancel') ? rgba(1, 0.36, 0.34, 0.5) : INK }}
+      onMouseDown={() => {
+        press('cancel')
+        requestCancel()
+      }}
+    >
+      <Label value="X" fontSize={30} color={enabled ? CORAL : MUTED} textAlign="middle-center" />
+    </UiEntity>
+  )
+}
+
+function DPad() {
   const size = PAD * 3 + PAD_GAP * 2
   return (
     // The left arrow's row sits above the Explorer's emote button (bottom-left).
     <UiEntity uiTransform={{ positionType: 'absolute', position: { left: DPAD_LEFT, bottom: 16 }, width: size, height: size }}>
-      <PadButton dir="up" icon={ICON.up} col={1} row={0} di={0} dj={1} enabled={props.enabled} />
-      <PadButton dir="left" icon={ICON.left} col={0} row={1} di={-1} dj={0} enabled={props.enabled} />
-      <PadButton dir="right" icon={ICON.right} col={2} row={1} di={1} dj={0} enabled={props.enabled} />
-      <PadButton dir="down" icon={ICON.down} col={1} row={2} di={0} dj={-1} enabled={props.enabled} />
+      <PadButton dir="up" icon={ICON.up} col={1} row={0} code={0} />
+      <PadButton dir="left" icon={ICON.left} col={0} row={1} code={2} />
+      <PadButton dir="right" icon={ICON.right} col={2} row={1} code={3} />
+      <PadButton dir="down" icon={ICON.down} col={1} row={2} code={1} />
+      <CancelButton />
+    </UiEntity>
+  )
+}
+
+// Steps planned out of steps allowed (more with a boost).
+function StepPips(props: { used: number; max: number }) {
+  const pips = []
+  for (let n = 0; n < props.max; n++) {
+    pips.push(
+      <UiEntity
+        key={`pip-${n}`}
+        uiTransform={{ width: 18, height: 18, margin: { left: 4, right: 4 }, borderRadius: 9, borderWidth: 2, borderColor: GOLD }}
+        uiBackground={{ color: n < props.used ? GOLD : CLEAR }}
+      />
+    )
+  }
+  return (
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 128, left: '50%' }, margin: { left: -(props.max * 26) / 2 }, flexDirection: 'row' }}>
+      {pips}
     </UiEntity>
   )
 }
@@ -495,9 +544,9 @@ const uiComponent = () => {
   const dead = slot?.dead ?? false
   const stunned = slot?.stunned ?? false
   const cell = myCell()
-  const canPick = canPickNow()
-  const pick = myPick()
-  const staying = pick.di === 0 && pick.dj === 0
+  const canPlan = canPlanNow()
+  const plan = myPlan()
+  const maxSteps = myMaxSteps()
   const harbor = cell ? inHarbor(cell.i, cell.j) : true
   const tier = cell ? tierOf(cell.i, cell.j) : 0
   const remaining = Math.max(0, 1 - phaseElapsed() / (playersTurn ? PLAYERS_TIME : SHARKS_TIME))
@@ -514,11 +563,11 @@ const uiComponent = () => {
     if (stunned) {
       status = 'SLAPPED - FROZEN'
       statusColor = CORAL
-    } else if (staying) {
-      status = canPick ? 'TAP AN ARROW - OR STAY' : 'STAYING'
-      statusColor = canPick ? MINT : MUTED
+    } else if (plan.length === 0) {
+      status = canPlan ? `PLAN UP TO ${maxSteps} STEPS - OR STAY` : 'STAYING'
+      statusColor = canPlan ? MINT : MUTED
     } else {
-      status = `GOING ${pick.dj > 0 ? 'UP' : pick.dj < 0 ? 'DOWN' : pick.di > 0 ? 'RIGHT' : 'LEFT'} - TAP AGAIN TO STAY`
+      status = `${plan.length}/${maxSteps} STEPS - X TO CANCEL`
       statusColor = GOLD
     }
   }
@@ -527,6 +576,7 @@ const uiComponent = () => {
     <UiEntity uiTransform={{ width: '100%', height: '100%' }} uiBackground={{ color: CLEAR }}>
       <Stats score={slot?.score ?? 0} lives={slot?.extraLives ?? 0} harbor={harbor} tier={tier} />
       <TurnPill playersTurn={playersTurn} remaining={remaining} status={status} statusColor={statusColor} />
+      {playersTurn && !dead && !stunned && <StepPips used={plan.length} max={maxSteps} />}
       {playersTurn && !dead && myTargetInDanger() && <LaneWarning />}
       {slot && cell && <Radar ci={cell.i} cj={cell.j} myAddress={slot.address} />}
       {!dead && <SlapButton />}

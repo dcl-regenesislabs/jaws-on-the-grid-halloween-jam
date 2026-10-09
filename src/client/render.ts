@@ -28,7 +28,7 @@ import {
 import { initAudio, sfx, SFX } from './audio'
 import { initAvatars } from './avatars'
 import { inputSystem_ } from './input'
-import { gameState, myCell, myPick, mySlot, phaseClockSystem } from './state'
+import { gameState, myCell, myPlanCells, mySlot, phaseClockSystem } from './state'
 import { createBoardEdge, createGridWindow, createHarbor, createWaterFloor, gridWindowSystem, waterScrollSystem } from './water'
 
 // Everything presentation-only lives here: water, grid, camera, touch HUD
@@ -130,21 +130,23 @@ function avatarFollowSystem(_dt: number): void {
   const cell = myCell()
   if (!slot || !cell || slot.dead) return
   if (cell.i === lastI && cell.j === lastJ) return
-  // Teleport on spawn/respawn; hop between neighbouring cells.
-  const jump = lastI < 0 || Math.abs(cell.i - lastI) + Math.abs(cell.j - lastJ) > 1
+  // Teleport on spawn/respawn; glide when swimming a planned path.
+  const jump = lastI < 0 || Math.abs(cell.i - lastI) + Math.abs(cell.j - lastJ) > Math.max(1, slot.maxSteps)
   if (!jump) sfx(SFX.hop, 0.4)
   lastI = cell.i
   lastJ = cell.j
   movePlayerTo({
     newRelativePosition: Vector3.create(cellCenter(cell.i), 0, cellCenter(cell.j)),
-    duration: jump ? undefined : 0.2 // client-side interpolated hop
+    duration: jump ? undefined : 0.4 // client-side interpolated glide
   }).catch(() => {})
 }
 
 // --- my cell: a glowing aqua frame so you can find yourself at a glance;
-// my pick: a gold frame on the cell I'll swim to at execution ---
+// my plan: gold frames on the cells I'll swim through, the last one full
+// size (pool sized for a few boosted steps) ---
 let myMarker: Entity
-let pickMarker: Entity
+const stepMarkers: Entity[] = []
+const MAX_STEP_MARKERS = 4
 
 function cellFrame(color: Color4, emissive: Color3): Entity {
   const root = engine.addEntity()
@@ -166,7 +168,9 @@ function cellFrame(color: Color4, emissive: Color3): Entity {
 
 function createMyCellMarker(): void {
   myMarker = cellFrame(Color4.create(0.4, 1, 0.95, 1), Color3.create(0.3, 1, 0.9))
-  pickMarker = cellFrame(Color4.create(1, 0.84, 0.32, 1), Color3.create(1, 0.7, 0.1))
+  for (let n = 0; n < MAX_STEP_MARKERS; n++) {
+    stepMarkers.push(cellFrame(Color4.create(1, 0.84, 0.32, 1), Color3.create(1, 0.7, 0.1)))
+  }
 }
 
 function myCellMarkerSystem(dt: number): void {
@@ -175,7 +179,7 @@ function myCellMarkerSystem(dt: number): void {
   const t = Transform.getMutable(myMarker)
   if (!slot || !cell || slot.dead) {
     t.scale = HIDDEN
-    Transform.getMutable(pickMarker).scale = HIDDEN
+    hideStepMarkers(0)
     return
   }
   const x = cellCenter(cell.i)
@@ -189,16 +193,25 @@ function myCellMarkerSystem(dt: number): void {
   )
   t.scale = Vector3.One()
 
-  // Pick frame, only while picking and only if I'm going somewhere.
-  const pick = myPick()
-  const p = Transform.getMutable(pickMarker)
-  if (gameState().phase !== 'players' || slot.stunned || (pick.di === 0 && pick.dj === 0)) {
-    if (p.scale.x !== 0) p.scale = HIDDEN
-    return
-  }
+  // Plan frames, only while picking (myPlanCells is empty otherwise).
+  const cells = slot.stunned ? [] : myPlanCells()
   const pulse = 0.92 + Math.sin(animClock * 10) * 0.06
-  p.position = Vector3.create(cellCenter(cell.i + pick.di), WATER_Y + 0.27, cellCenter(cell.j + pick.dj))
-  p.scale = Vector3.create(pulse, 1, pulse)
+  cells.slice(0, MAX_STEP_MARKERS).forEach(([i, j], n) => {
+    const last = n === cells.length - 1
+    const size = last ? pulse : 0.55
+    Transform.createOrReplace(stepMarkers[n], {
+      position: Vector3.create(cellCenter(i), WATER_Y + 0.27, cellCenter(j)),
+      scale: Vector3.create(size, 1, size)
+    })
+  })
+  hideStepMarkers(cells.length)
+}
+
+function hideStepMarkers(from: number): void {
+  for (let n = from; n < stepMarkers.length; n++) {
+    const t = Transform.getMutable(stepMarkers[n])
+    if (t.scale.x !== 0) t.scale = HIDDEN
+  }
 }
 
 // --- shark visuals: fin, lane telegraph, breach head per synced shark ---

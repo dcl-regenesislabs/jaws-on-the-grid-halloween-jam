@@ -1,9 +1,10 @@
 import { PlayerIdentityData, engine } from '@dcl/sdk/ecs'
 
 import { GameState, PlayerSlot, Shark } from '../shared/components'
+import { pathCells } from '../shared/config'
 
 // Client-side shared state: synced-slot accessors, the local phase clock and
-// my pick for the coming execution (shown at once, server confirms).
+// my planned path for the coming execution (shown at once, server confirms).
 //
 // NOTE: no getPlayer() anywhere — its internal getUserData promise rejects with
 // 'channel closed' on scene reloads and kills the scene's update loop. The
@@ -37,21 +38,34 @@ export function myCell(): { i: number; j: number } | null {
   return slot ? { i: slot.cellI, j: slot.cellJ } : null
 }
 
-// --- my pick: shown on tap; the server's echo (planDi/planDj) takes over ---
-export const pendingPick = { active: false, di: 0, dj: 0, at: 0 }
+// --- my plan: shown on tap; the server's echo (slot.path) takes over ---
+export const pendingPlan = { active: false, steps: [] as number[], at: 0 }
 
-export function myPick(): { di: number; dj: number } {
+// Planned step codes while picking; empty during execution (slot.path then
+// holds the path being swum, not a plan).
+export function myPlan(): number[] {
   const slot = mySlot()
-  if (pendingPick.active) return { di: pendingPick.di, dj: pendingPick.dj }
-  return slot ? { di: slot.planDi, dj: slot.planDj } : { di: 0, dj: 0 }
+  if (!slot || gameState().phase !== 'players') return []
+  if (pendingPlan.active) return pendingPlan.steps
+  return Array.from(slot.path)
 }
 
-// Where I'll be after the coming execution.
+export function myMaxSteps(): number {
+  return mySlot()?.maxSteps ?? 0
+}
+
+// Cells I'll swim through, last one = where I'll end the execution.
+export function myPlanCells(): [number, number][] {
+  const cell = myCell()
+  return cell ? pathCells(cell.i, cell.j, myPlan()) : []
+}
+
 export function myTarget(): { i: number; j: number } | null {
   const cell = myCell()
   if (!cell) return null
-  const pick = myPick()
-  return { i: cell.i + pick.di, j: cell.j + pick.dj }
+  const cells = myPlanCells()
+  const last = cells[cells.length - 1]
+  return last ? { i: last[0], j: last[1] } : cell
 }
 
 // --- local phase clock: seconds since the current phase started ---

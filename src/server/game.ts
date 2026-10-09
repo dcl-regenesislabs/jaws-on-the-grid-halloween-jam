@@ -7,6 +7,7 @@ import { GameState, Pickup, PlayerSlot, Shark } from '../shared/components'
 import { room } from '../shared/messages'
 import {
   ATTACK_COOLDOWN,
+  BASE_STEPS,
   CENTER_CELL,
   COIN_POINTS,
   DESPAWN_CELLS,
@@ -27,15 +28,16 @@ import {
   SURVIVAL_BONUS,
   inBoard,
   inHarbor,
+  pathCells,
   tierOf
 } from '../shared/config'
 
 // Server-authoritative game. Runs headless; owns all state in the synced
 // components. Clients only send intent messages (pick/attack/respawn).
 //
-// Global turns: for PLAYERS_TIME everyone picks a neighbouring cell (or
-// stays) while every shark shows its lunge lane. Then execution
-// (SHARKS_TIME): all players swim to their picks as the sharks dash, and
+// Global turns: for PLAYERS_TIME everyone plans a path of up to maxSteps
+// cells (or stays) while every shark shows its lunge lane. Then execution
+// (SHARKS_TIME): all players swim their paths as the sharks dash, and
 // whoever ends on a lane is bitten.
 
 let enumIdSeq = 1
@@ -128,19 +130,19 @@ export function initServer() {
     pickupPool.push(pickup)
   }
 
-  // Picks can change freely until the players' turn ends; the last one wins.
-  room.onMessage('pick', (data, context) => {
+  // Plans can change freely until the players' turn ends; the last one wins.
+  room.onMessage('plan', (data, context) => {
     if (phase !== 'players') return
     const found = senderSlot(context)
     if (!found || found.slot.dead || found.slot.stunned) {
-      console.log('[server] pick REJECTED', found ? `dead=${found.slot.dead} stunned=${found.slot.stunned}` : 'no-slot')
+      console.log('[server] plan REJECTED', found ? `dead=${found.slot.dead} stunned=${found.slot.stunned}` : 'no-slot')
       return
     }
-    const { di, dj } = data
-    if (Math.abs(di) + Math.abs(dj) > 1) return
-    if (!inBoard(found.slot.cellI + di, found.slot.cellJ + dj)) return // the net at the world's edge
-    found.slot.planDi = di
-    found.slot.planDj = dj
+    const steps = Array.from(data.steps as Iterable<number>)
+    if (steps.length > found.slot.maxSteps || steps.some((c) => !(c >= 0 && c <= 3))) return
+    // Every cell on the way must be on the board (the net at the world's edge).
+    if (pathCells(found.slot.cellI, found.slot.cellJ, steps).some(([i, j]) => !inBoard(i, j))) return
+    found.slot.path = steps
   })
 
   room.onMessage('attack', (_data, context) => {
@@ -159,8 +161,7 @@ export function initServer() {
         // they sit where they are — a sitting duck on a lane.
         const mut = PlayerSlot.getMutable(entity)
         mut.stunned = true
-        mut.planDi = 0
-        mut.planDj = 0
+        mut.path = []
       }
     }
   })
@@ -172,8 +173,7 @@ export function initServer() {
     found.slot.stunned = false
     found.slot.cellI = CENTER_CELL
     found.slot.cellJ = CENTER_CELL
-    found.slot.planDi = 0
-    found.slot.planDj = 0
+    found.slot.path = []
   })
 
   // Leaderboard keeps each player's best saved score. Saves run one at a
@@ -253,8 +253,8 @@ function syncPlayerSlots() {
         name: identity.address.slice(0, 8),
         cellI: CENTER_CELL,
         cellJ: CENTER_CELL,
-        planDi: 0,
-        planDj: 0,
+        path: [],
+        maxSteps: BASE_STEPS,
         score: 0,
         extraLives: 0,
         dead: false,
@@ -291,14 +291,16 @@ function turnTick(dt: number) {
     // they showed. Bites are checked when the dash ends (resolveLunges).
     phase = 'sharks'
     phaseTimer = SHARKS_TIME
+    // The path stays in the slot so clients can animate it.
     for (const [entity, slot] of engine.getEntitiesWith(PlayerSlot)) {
-      if (slot.dead || (slot.planDi === 0 && slot.planDj === 0)) continue
+      const cells = pathCells(slot.cellI, slot.cellJ, Array.from(slot.path))
+      if (slot.dead || cells.length === 0) continue
       const mut = PlayerSlot.getMutable(entity)
-      mut.cellI += slot.planDi
-      mut.cellJ += slot.planDj
-      mut.planDi = 0
-      mut.planDj = 0
-      collectPickups(mut)
+      for (const [i, j] of cells) {
+        mut.cellI = i
+        mut.cellJ = j
+        collectPickups(mut) // coins on the way count too
+      }
     }
     for (const shark of sharkPool) {
       const s = Shark.get(shark)
@@ -312,8 +314,7 @@ function turnTick(dt: number) {
     for (const [entity, slot] of engine.getEntitiesWith(PlayerSlot)) {
       const mut = PlayerSlot.getMutable(entity)
       mut.stunned = false
-      mut.planDi = 0
-      mut.planDj = 0
+      mut.path = []
     }
     populateSharks()
     populatePickups()

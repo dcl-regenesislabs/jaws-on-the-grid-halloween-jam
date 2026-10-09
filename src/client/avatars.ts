@@ -2,7 +2,7 @@ import { AvatarModifierArea, AvatarModifierType, AvatarShape, Entity, Transform,
 import { Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { PlayerSlot } from '../shared/components'
-import { AVATAR_Y, BOARD_SIZE, cellCenter } from '../shared/config'
+import { AVATAR_Y, BOARD_SIZE, CELL, cellCenter, pathCells } from '../shared/config'
 import { myCell, mySlot } from './state'
 
 // Every player is drawn as an AvatarShape copy of their real look (profile
@@ -14,15 +14,14 @@ import { myCell, mySlot } from './state'
 
 const SWIM = 'assets/animations/swim_emote.glb'
 const FLOAT = 'assets/animations/float_emote.glb'
-const GLIDE_TIME = 0.4 // s from cell to cell
+const GLIDE_TIME = 0.45 // s for a whole planned path (fits the 0.5 s execution)
 const SWIM_HOLD = 0.7 // s of swim before settling into float
 const FLOAT_LOOP = 1.6 // clip length; re-triggered so it keeps treading
 
 interface Swimmer {
   entity: Entity
   profileKey: string
-  fromX: number
-  fromZ: number
+  points: { x: number; z: number }[] // polyline being swum, start → end
   toX: number
   toZ: number
   t: number // seconds since the last cell change
@@ -100,31 +99,46 @@ function swimmerSystem(dt: number): void {
         eyeColor: slot.eyesColor
       })
       Transform.create(entity, { position: Vector3.create(x, AVATAR_Y, z) })
-      s = { entity, profileKey, fromX: x, fromZ: z, toX: x, toZ: z, t: GLIDE_TIME, yaw: 0, emote: '', emoteAt: 0, stamp: 0 }
+      s = { entity, profileKey, points: [{ x, z }], toX: x, toZ: z, t: GLIDE_TIME, yaw: 0, emote: '', emoteAt: 0, stamp: 0 }
       swimmers.set(slotEntity, s)
       play(s, FLOAT)
     }
 
-    // New cell: glide there from wherever we are, swimming.
+    // New cell: swim the executed path (still in slot.path) corner by
+    // corner; anything else (respawn, join) snaps.
     if (x !== s.toX || z !== s.toZ) {
-      const t = Transform.get(s.entity).position
-      const far = Math.abs(x - t.x) + Math.abs(z - t.z) > 2 * 4 + 0.1 // respawn/teleport
-      s.fromX = far ? x : t.x
-      s.fromZ = far ? z : t.z
+      const pos = Transform.get(s.entity).position
+      const path = Array.from(slot.path)
+      const di = path.reduce((a, c) => a + (c === 3 ? 1 : c === 2 ? -1 : 0), 0)
+      const dj = path.reduce((a, c) => a + (c === 0 ? 1 : c === 1 ? -1 : 0), 0)
+      const startI = cell.i - di
+      const startJ = cell.j - dj
+      const fromPath = path.length > 0 && Math.abs(cellCenter(startI) - pos.x) + Math.abs(cellCenter(startJ) - pos.z) < CELL
+      const near = Math.abs(x - pos.x) + Math.abs(z - pos.z) <= CELL + 0.1
+      if (fromPath) {
+        s.points = [{ x: pos.x, z: pos.z }, ...pathCells(startI, startJ, path).map(([i, j]) => ({ x: cellCenter(i), z: cellCenter(j) }))]
+      } else if (near) {
+        s.points = [{ x: pos.x, z: pos.z }, { x, z }]
+      } else {
+        s.points = [{ x, z }]
+      }
       s.toX = x
       s.toZ = z
-      s.t = far ? GLIDE_TIME : 0
-      if (!far) {
-        s.yaw = (Math.atan2(x - t.x, z - t.z) * 180) / Math.PI
-        play(s, SWIM)
-      }
+      s.t = 0
+      if (s.points.length > 1) play(s, SWIM)
     }
 
     s.t += dt
     const k = Math.min(1, s.t / GLIDE_TIME)
     const e = k * k * (3 - 2 * k)
+    const segs = s.points.length - 1
+    const at = segs > 0 ? Math.min(segs - 1, Math.floor(e * segs)) : 0
+    const a = s.points[at]
+    const b = s.points[Math.min(at + 1, segs)]
+    const f = segs > 0 ? e * segs - at : 1
+    if (b.x !== a.x || b.z !== a.z) s.yaw = (Math.atan2(b.x - a.x, b.z - a.z) * 180) / Math.PI
     Transform.createOrReplace(s.entity, {
-      position: Vector3.create(s.fromX + (s.toX - s.fromX) * e, AVATAR_Y, s.fromZ + (s.toZ - s.fromZ) * e),
+      position: Vector3.create(a.x + (b.x - a.x) * f, AVATAR_Y, a.z + (b.z - a.z) * f),
       rotation: Quaternion.fromEulerDegrees(0, s.yaw, 0),
       scale: slot.dead ? Vector3.Zero() : Vector3.One()
     })

@@ -1,27 +1,31 @@
 import { InputAction, PointerEventType, engine, inputSystem } from '@dcl/sdk/ecs'
 
-import { ATTACK_COOLDOWN, PLAYERS_TIME, inBoard } from '../shared/config'
+import { ATTACK_COOLDOWN, PLAYERS_TIME, STEP_DIRS, inBoard, pathCells } from '../shared/config'
 import { room } from '../shared/messages'
-import { gameState, mySlot, myPick, pendingPick, phaseElapsed } from './state'
+import { gameState, myMaxSteps, myPlan, mySlot, pendingPlan, phaseElapsed } from './state'
 
-// Input. During the players' turn you pick a neighbouring cell (tap the same
-// arrow again to stay); execution moves everyone at once. Touch d-pad/slap
-// come from ui.tsx; desktop keys are an optional extra (WASD/arrows, E).
+// Input. During the players' turn you plan a path of up to maxSteps cells:
+// each arrow adds a step, the opposite of the last step undoes it, CANCEL
+// clears it. Execution moves everyone at once. Touch d-pad/slap/cancel come
+// from ui.tsx; desktop keys are an optional extra (WASD/arrows, E slap, F cancel).
 
 let clock = 0
 let lastSlapAt = -999
 
-// Picks this close to the end of the turn would reach the server too late.
+// Plans this close to the end of the turn would reach the server too late.
 const LATE_TAP = 0.15
 
-const KEYS: [InputAction, number, number][] = [
-  [InputAction.IA_FORWARD, 0, 1],
-  [InputAction.IA_BACKWARD, 0, -1],
-  [InputAction.IA_LEFT, -1, 0],
-  [InputAction.IA_RIGHT, 1, 0]
+// Desktop keys → step codes (STEP_DIRS order: up, down, left, right).
+const KEYS: [InputAction, number][] = [
+  [InputAction.IA_FORWARD, 0],
+  [InputAction.IA_BACKWARD, 1],
+  [InputAction.IA_LEFT, 2],
+  [InputAction.IA_RIGHT, 3]
 ]
 
-export function canPickNow(): boolean {
+const OPPOSITE = [1, 0, 3, 2]
+
+export function canPlanNow(): boolean {
   const slot = mySlot()
   return (
     !!slot &&
@@ -32,21 +36,35 @@ export function canPickNow(): boolean {
   )
 }
 
-export function requestPick(di: number, dj: number): void {
-  if (!canPickNow()) return
+function sendPlan(steps: number[]): void {
+  pendingPlan.active = true
+  pendingPlan.steps = steps
+  pendingPlan.at = clock
+  room.send('plan', { steps })
+}
+
+// Can this arrow add a step (or undo the last one) right now?
+export function canStep(code: number): boolean {
+  if (!canPlanNow()) return false
+  const plan = myPlan()
+  if (plan.length > 0 && plan[plan.length - 1] === OPPOSITE[code]) return true
+  if (plan.length >= myMaxSteps()) return false
   const slot = mySlot()!
-  const current = myPick()
-  // Same arrow again = change of mind: stay.
-  if (current.di === di && current.dj === dj) {
-    di = 0
-    dj = 0
-  }
-  if (!inBoard(slot.cellI + di, slot.cellJ + dj)) return
-  pendingPick.active = true
-  pendingPick.di = di
-  pendingPick.dj = dj
-  pendingPick.at = clock
-  room.send('pick', { di, dj })
+  const cells = pathCells(slot.cellI, slot.cellJ, [...plan, code])
+  const [i, j] = cells[cells.length - 1]
+  return inBoard(i, j)
+}
+
+export function requestStep(code: number): void {
+  if (!canStep(code) || !STEP_DIRS[code]) return
+  const plan = myPlan()
+  if (plan.length > 0 && plan[plan.length - 1] === OPPOSITE[code]) sendPlan(plan.slice(0, -1))
+  else sendPlan([...plan, code])
+}
+
+export function requestCancel(): void {
+  if (!canPlanNow() || myPlan().length === 0) return
+  sendPlan([])
 }
 
 export function slapCooldownLeft(): number {
@@ -65,24 +83,29 @@ export function requestSlap(): boolean {
   return true
 }
 
+function samePath(a: readonly number[], b: readonly number[]): boolean {
+  return a.length === b.length && a.every((v, k) => v === b[k])
+}
+
 export function inputSystem_(dt: number): void {
   clock += dt
 
   // Desktop keyboard (touch players use the on-screen d-pad).
-  for (const [action, di, dj] of KEYS) {
+  for (const [action, code] of KEYS) {
     if (inputSystem.isTriggered(action, PointerEventType.PET_DOWN)) {
-      requestPick(di, dj)
+      requestStep(code)
       break
     }
   }
   if (inputSystem.isTriggered(InputAction.IA_PRIMARY, PointerEventType.PET_DOWN)) requestSlap()
+  if (inputSystem.isTriggered(InputAction.IA_SECONDARY, PointerEventType.PET_DOWN)) requestCancel()
 
-  // Reconcile: the server echoed my pick → its copy takes over; no echo in
+  // Reconcile: the server echoed my plan → its copy takes over; no echo in
   // time (rejected), turn over, stunned or dead → drop the local one.
-  if (!pendingPick.active) return
+  if (!pendingPlan.active) return
   const slot = mySlot()
-  const echoed = !!slot && slot.planDi === pendingPick.di && slot.planDj === pendingPick.dj
-  if (!slot || slot.dead || slot.stunned || echoed || gameState().phase !== 'players' || clock - pendingPick.at > 1.2) {
-    pendingPick.active = false
+  const echoed = !!slot && samePath(Array.from(slot.path), pendingPlan.steps)
+  if (!slot || slot.dead || slot.stunned || echoed || gameState().phase !== 'players' || clock - pendingPlan.at > 1.2) {
+    pendingPlan.active = false
   }
 }

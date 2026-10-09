@@ -18,6 +18,31 @@ export const HARBOR_RADIUS = 2 // Chebyshev cells → a 5×5 square
 export const PLAYERS_TIME = 2
 export const SHARKS_TIME = 0.5
 
+// Steps a player may plan per turn. Per-player in PlayerSlot.maxSteps so a
+// future BOOST pickup can raise it; this is the starting value.
+export const BASE_STEPS = 2
+
+// Step codes used in planned paths.
+export const STEP_DIRS: [number, number][] = [
+  [0, 1], // 0 up
+  [0, -1], // 1 down
+  [-1, 0], // 2 left
+  [1, 0] // 3 right
+]
+
+// Cells visited by a path of step codes from (i, j), excluding the start.
+export function pathCells(i: number, j: number, steps: readonly number[]): [number, number][] {
+  const out: [number, number][] = []
+  for (const code of steps) {
+    const d = STEP_DIRS[code]
+    if (!d) break
+    i += d[0]
+    j += d[1]
+    out.push([i, j])
+  }
+  return out
+}
+
 // Sharks: each one shows its lunge lane during the players' turn, then
 // dashes along it during the sharks' turn. Anyone on the lane is bitten.
 export const LUNGE_CELLS = 3

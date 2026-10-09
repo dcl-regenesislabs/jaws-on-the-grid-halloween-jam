@@ -29,9 +29,10 @@ export const PlayerSlot = engine.defineComponent('player-slot', {
   name: Schemas.String,
   cellI: Schemas.Int,
   cellJ: Schemas.Int,
-  // Picked step for the coming execution (-1..1 each, 0,0 = stay).
-  planDi: Schemas.Int,
-  planDj: Schemas.Int,
+  // Planned path (STEP_DIRS codes) for the coming execution; during the
+  // execution it is the path being swum, cleared when picking starts again.
+  path: Schemas.Array(Schemas.Int),
+  maxSteps: Schemas.Int, // BASE_STEPS, more with a boost
   score: Schemas.Int,
   extraLives: Schemas.Int,
   dead: Schemas.Boolean,
