@@ -13,8 +13,8 @@ function myAddress(): string {
   return (PlayerIdentityData.getOrNull(engine.PlayerEntity)?.address ?? '').toLowerCase()
 }
 
-// My slot by wallet address. A lone slot is mine too (guest/review mode,
-// where the server may key slots by entity instead of address).
+// My slot by wallet address. Without a known address (guest/review mode,
+// where the server may key slots by entity), a lone slot is mine.
 export function mySlot(): ReturnType<typeof PlayerSlot.getOrNull> {
   const address = myAddress()
   let only: ReturnType<typeof PlayerSlot.getOrNull> = null
@@ -24,7 +24,7 @@ export function mySlot(): ReturnType<typeof PlayerSlot.getOrNull> {
     only = slot
     count++
   }
-  return count === 1 ? only : null
+  return !address && count === 1 ? only : null
 }
 
 export function gameState(): { phase: string; turn: number } {

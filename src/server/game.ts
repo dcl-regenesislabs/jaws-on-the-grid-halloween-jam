@@ -85,13 +85,11 @@ function findSlot(key: string) {
   return null
 }
 
-// Resolve the sender's slot. With exactly one player connected, an
-// unidentified sender (review/guest mode) maps to that single slot.
+// Resolve the sender's slot. Only an unidentified sender (review/guest mode)
+// falls back to the single connected slot; a known address without a slot
+// yet (still joining) must not act on someone else's.
 function senderSlot(context: { from: string } | null | undefined) {
-  if (context) {
-    const found = findSlot(context.from)
-    if (found) return found
-  }
+  if (context?.from) return findSlot(context.from)
   const all = [...engine.getEntitiesWith(PlayerSlot)]
   if (all.length === 1) return { entity: all[0][0], slot: PlayerSlot.getMutable(all[0][0]) }
   return null
@@ -153,6 +151,8 @@ export function initServer() {
   })
 
   room.onMessage('attack', (_data, context) => {
+    // Only on the players' turn: a stun cleared 0.5 s later would be a no-op.
+    if (phase !== 'players') return
     const attacker = senderSlot(context)
     if (!attacker || attacker.slot.dead || attacker.slot.stunned) return
     const key = attacker.slot.address
@@ -180,29 +180,36 @@ export function initServer() {
     found.slot.movesLeft = phase === 'players' ? MOVES_PER_TURN : 0
   })
 
-  // Leaderboard keeps each player's best saved score.
-  room.onMessage('saveScore', async (_data, context) => {
+  // Leaderboard keeps each player's best saved score. Saves run one at a
+  // time so concurrent read-modify-writes don't drop each other's entries.
+  room.onMessage('saveScore', (_data, context) => {
     const found = senderSlot(context)
     if (!found) return
     const name = found.slot.name || 'anon'
     const score = found.slot.score
-    let board: { name: string; score: number }[] = []
-    try {
-      const raw = await Storage.get<string>('leaderboard')
-      if (raw) board = JSON.parse(raw)
-      if (!Array.isArray(board)) board = []
-    } catch {
-      board = []
-    }
-    const mine = board.find((e) => e.name === name)
-    if (mine) mine.score = Math.max(mine.score, score)
-    else board.push({ name, score })
-    board.sort((a, b) => b.score - a.score)
-    const ok = await Storage.set('leaderboard', JSON.stringify(board.slice(0, 10)))
-    if (!ok) console.error('[server] leaderboard save failed')
+    saveQueue = saveQueue.then(() => saveToBoard(name, score)).catch(() => {})
   })
 
   engine.addSystem(serverTick)
+}
+
+let saveQueue: Promise<void> = Promise.resolve()
+
+async function saveToBoard(name: string, score: number) {
+  let board: { name: string; score: number }[] = []
+  try {
+    const raw = await Storage.get<string>('leaderboard')
+    if (raw) board = JSON.parse(raw)
+    if (!Array.isArray(board)) board = []
+  } catch {
+    board = []
+  }
+  const mine = board.find((e) => e.name === name)
+  if (mine) mine.score = Math.max(mine.score, score)
+  else board.push({ name, score })
+  board.sort((a, b) => b.score - a.score)
+  const ok = await Storage.set('leaderboard', JSON.stringify(board.slice(0, 10)))
+  if (!ok) console.error('[server] leaderboard save failed')
 }
 
 function serverTick(dt: number) {
@@ -386,6 +393,7 @@ function populatePickups() {
   }
 
   const occupied = (i: number, j: number) =>
+    players.some((p) => p.i === i && p.j === j) ||
     pickupPool.some((e) => {
       const p = Pickup.get(e)
       return p.active && p.cellI === i && p.cellJ === j

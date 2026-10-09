@@ -5,7 +5,7 @@ import ReactEcs, { Label, ReactEcsRenderer, UiEntity } from '@dcl/sdk/react-ecs'
 import { Pickup, PlayerSlot } from '../shared/components'
 import { CENTER_CELL, HARBOR_RADIUS, PLAYERS_TIME, SHARKS_TIME, inHarbor, tierOf } from '../shared/config'
 import { room } from '../shared/messages'
-import { canMoveNow, requestMove, requestSlap, slapCooldownLeft } from './input'
+import { canMoveNow, canSlapNow, requestMove, requestSlap, slapCooldownLeft } from './input'
 import { gameState, myCell, myCellInDanger, mySlot, phaseElapsed } from './state'
 
 // HUD for a 1600×720 mobile canvas, inside the interactable area (clear of
@@ -285,8 +285,8 @@ function Radar(props: { ci: number; cj: number; myAddress: string }) {
       uiTransform={{
         positionType: 'absolute',
         position: { top: 16, right: 16 },
-        width: RADAR + 4,
-        height: RADAR + 4,
+        width: RADAR + 8, // + padding 2 + border 2, both sides
+        height: RADAR + 8,
         padding: 2,
         borderRadius: 20,
         borderWidth: 2,
@@ -349,10 +349,10 @@ function DPad(props: { enabled: boolean }) {
 }
 
 // --- bottom-right: fish slap (stuns players next to you) ---
-function SlapButton(props: { enabled: boolean }) {
+function SlapButton() {
   const cooldown = slapCooldownLeft()
   const cooling = cooldown > 0
-  const ready = props.enabled && !cooling
+  const ready = canSlapNow()
   const SIZE = 132
   return (
     <UiEntity
@@ -487,7 +487,10 @@ const uiComponent = () => {
 
   let status = 'HOLD STILL...'
   let statusColor = MUTED
-  if (playersTurn) {
+  if (dead) {
+    status = 'CHOMPED'
+    statusColor = CORAL
+  } else if (playersTurn) {
     if (stunned) {
       status = 'SLAPPED - FROZEN'
       statusColor = CORAL
@@ -506,7 +509,7 @@ const uiComponent = () => {
       {playersTurn && !dead && myCellInDanger() && <LaneWarning />}
       {slot && cell && <Radar ci={cell.i} cj={cell.j} myAddress={slot.address} />}
       {!dead && <DPad enabled={canMove} />}
-      {!dead && <SlapButton enabled={!stunned} />}
+      {!dead && <SlapButton />}
       {dead && <DeathCard score={slot?.score ?? 0} />}
     </UiEntity>
   )

@@ -80,7 +80,8 @@ function audioSystem(): void {
   if (!slot.dead) {
     if (slot.extraLives > lastLives) sfx(SFX.life)
     else if (slot.extraLives < lastLives) sfx(SFX.saved)
-    if (slot.score - lastScore >= COIN_POINTS) sfx(SFX.coin, 0.8)
+    // A buoy save also adds points; only a coin pickup plays the coin cue.
+    else if (slot.score - lastScore >= COIN_POINTS) sfx(SFX.coin, 0.8)
   }
   lastDead = slot.dead
   lastLives = slot.extraLives
