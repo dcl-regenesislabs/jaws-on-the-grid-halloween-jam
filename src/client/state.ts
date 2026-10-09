@@ -14,6 +14,11 @@ function myAddress(): string {
   return (PlayerIdentityData.getOrNull(engine.PlayerEntity)?.address ?? '').toLowerCase()
 }
 
+// Ephemeral guest account (no wallet / social login)? Guests can't play.
+export function isGuest(): boolean {
+  return PlayerIdentityData.getOrNull(engine.PlayerEntity)?.isGuest === true
+}
+
 // My slot by wallet address. Without a known address (guest/review mode,
 // where the server may key slots by entity), a lone slot is mine.
 export function mySlot(): ReturnType<typeof PlayerSlot.getOrNull> {

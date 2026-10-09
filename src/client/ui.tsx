@@ -6,7 +6,7 @@ import { Pickup, PlayerSlot } from '../shared/components'
 import { HARBOR_MIN, HARBOR_SIZE, PLAYERS_TIME, SHARKS_TIME, inHarbor, tierOf } from '../shared/config'
 import { room } from '../shared/messages'
 import { canPlanNow, canSlapNow, canStep, requestCancel, requestSlap, requestStep, slapCooldownLeft } from './input'
-import { gameState, myCell, myMaxSteps, myPlan, myTargetInDanger, mySlot, phaseElapsed } from './state'
+import { gameState, isGuest, myCell, myMaxSteps, myPlan, myTargetInDanger, mySlot, phaseElapsed } from './state'
 
 // HUD for a 1600×720 mobile canvas, inside the interactable area (clear of
 // the Explorer's own left-hand controls). Layout:
@@ -51,16 +51,39 @@ export function setupUi() {
   // D-pad in the device safe area: nearer the left thumb than the
   // interactable area, which starts right of the Explorer's left controls.
   ReactEcsRenderer.addUiRenderer(engine.addEntity(), movePad, { screenInset: 'device', zIndex: 20 })
-  // No server: a full-screen blocker over everything, Explorer areas included.
-  ReactEcsRenderer.addUiRenderer(engine.addEntity(), connectionLost, { screenInset: 'none', zIndex: 30 })
+  // No server / guest account: full-screen blockers over everything,
+  // Explorer areas included.
+  ReactEcsRenderer.addUiRenderer(engine.addEntity(), blocker, { screenInset: 'none', zIndex: 30 })
 }
 
 const serverLost = () => !serverConnected && noServerElapsed > 12
 
-const connectionLost = () => (serverLost() ? <ConnectionError /> : null)
+const blocker = () => (isGuest() ? <GuestBlocked /> : serverLost() ? <ConnectionError /> : null)
+
+// Guests can't play; the server never gives them a slot either.
+function GuestBlocked() {
+  return (
+    <UiEntity uiTransform={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }} uiBackground={{ color: rgba(0, 0, 0, 0.85) }}>
+      <UiEntity
+        uiTransform={{ width: 480, flexDirection: 'column', alignItems: 'center', padding: 24, borderRadius: 28, borderWidth: 2, borderColor: GOLD }}
+        uiBackground={{ color: rgba(0.03, 0.06, 0.12, 0.96) }}
+      >
+        <Icon src={ICON.head} size={110} />
+        <Label value="SIGN IN TO PLAY" fontSize={34} color={GOLD} textAlign="middle-center" uiTransform={{ height: 48 }} />
+        <Label
+          value={'Guest accounts cannot swim with the sharks.\nLog in with a wallet or social account,\nthen re-enter the scene.'}
+          fontSize={18}
+          color={MUTED}
+          textAlign="middle-center"
+          uiTransform={{ width: '100%', height: 84 }}
+        />
+      </UiEntity>
+    </UiEntity>
+  )
+}
 
 const movePad = () => {
-  if (serverLost()) return null
+  if (serverLost() || isGuest()) return null
   const slot = mySlot()
   if (!slot || slot.dead) return null
   return (
@@ -578,7 +601,7 @@ function ConnectionError() {
 }
 
 const uiComponent = () => {
-  if (serverLost()) return null
+  if (serverLost() || isGuest()) return null
 
   const slot = mySlot()
   const { phase } = gameState()

@@ -256,6 +256,8 @@ function applyProfile(playerEntity: Entity, slotEntity: Entity) {
 function syncPlayerSlots() {
   const seen = new Set<string>()
   for (const [entity, identity] of engine.getEntitiesWith(PlayerIdentityData)) {
+    // Ephemeral guest accounts can't play (no slot → no moves, no score).
+    if (identity.isGuest) continue
     const key = identity.address.toLowerCase() || `entity-${entity}`
     seen.add(key)
     if (!findSlot(key)) {
