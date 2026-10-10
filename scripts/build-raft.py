@@ -105,17 +105,16 @@ def text(body, y, size, color):
     bpy.ops.object.text_add(location=(0,y,.175))
     o=bpy.context.object; o.data.body=body; o.data.align_x='CENTER'; o.data.align_y='CENTER'; o.data.size=size; o.data.extrude=.003; o.data.resolution_u=2
     panel.append(finish(o,body,color))
-text('SCORE BOARD',.72,.55,8)
-text('TOP SURVIVORS',.05,.28,7)
-text('TAP TO VIEW',-.88,.32,9)
-for x,h in ((-.52,.22),(0,.45),(.52,.14)):
-    panel.append(box('Podium',(x,-.48+h/2,.18),(.4,h,.045),9))
+# Title and a small tap hint are baked; the live top 5 between them is SDK
+# TextShape (src/client/harbor.ts), rows from y=+.55 down to y=-.69.
+text('SCORE BOARD',.98,.4,8)
+text('TAP TO VIEW',-1.1,.22,9)
 from mathutils import Matrix
 rot=Matrix.Rotation(math.radians(35),4,'X')
 for o in panel: o.matrix_world=Matrix.Translation((0,0,1.85)) @ rot @ o.matrix_world
 board=export_group('raft-scoreboard',[o for o in scene.objects if o not in before])
 # Working layout only. GLB origins remain local; placement lives in the composite.
-board.location=(0,10.5,0)
+board.location=(0,9.5,0)
 os.makedirs(os.path.join(ROOT,'design/raft'),exist_ok=True)
 bpy.data.libraries.write(os.path.join(ROOT,'design/raft/starting-raft.blend'),{scene},fake_user=True)
 print('Saved editable raft scene and two GLBs')

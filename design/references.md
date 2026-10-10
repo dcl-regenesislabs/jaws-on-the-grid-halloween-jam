@@ -57,3 +57,14 @@ Next step: audition v3 JOIN and CHECK files for phrase completion and repetition
 - `assets/models/shark.glb`: "Shark" by Quaternius, Animated Fish Bundle on
   poly.pizza (https://poly.pizza/bundle/Animated-Fish-Bundle-ZkGbjS8m8g), CC0.
   Swim clip: `Armature|Swim`. Downloaded from static.poly.pizza.
+
+## Walk and idle scene emotes (2026-10-10)
+
+Official Decentraland unity-explorer assets, downloaded from
+https://github.com/decentraland/unity-explorer/tree/main/avatar-preview-renderer/Assets/StreamingAssets
+(`walk.glb`, `idle.glb`). Copied unchanged as `walk_emote.glb` and
+`idle_emote.glb` under assets/animations. Repository Apache-2.0 license retained
+in assets/animations/LICENSE-unity-explorer.txt. Each file has one animation,
+63 nodes, 186 animation channels and no meshes. Walk: 1.067 s, 90,784 bytes;
+idle: 3.033 s, 135,080 bytes. These are the repository's Walk_Male/Idle_Male
+clips; identical appearance across body shapes/clients has not been verified.

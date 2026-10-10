@@ -138,3 +138,56 @@ to RESET THE WORLD and change the number of bots in game. `ADMINS` in
 `src/shared/config.ts`. Agent choices: two-tap RESET; reset clears every slot (players
 and bots) and the sea but keeps the saved leaderboard; bot count 0..`BOT_MAX` (20),
 stored on the server so it survives restarts. Deployed 57ccf08; not yet tried in game.
+
+2026-10-10 - Owner (Kuruk): avatars read too small. Make the TILES smaller rather than
+scaling the avatars, and show a player's name above their avatar when you are near
+them. Agent choice: CELL 4 m -> 3.2 m (GRID 200 -> 250, still the full 800 m), so an
+avatar is 25% bigger relative to a tile (4 / 3.2 = 1.25). Nametag distance is a
+starting value, not validated.
+Agent defaults: game rules stay in cells (same balance); camera unchanged, so
+avatars keep their pixel size and ~25% more cells fit on screen. Tile-tied props
+(fins, pickups, mine sprite, marks) shrink by `PROP_SCALE` = CELL/4; shark barrel
+counts and mine blast plates keep their size. Raft scaled (0.8, 1, 0.8) in the
+composite, scoreboard z 407.6. Names: TextShape over other players within
+`NAMETAG_CELLS` (3), not over yourself. Phone, first look:
+[smaller-tiles-phone.png](playtests/smaller-tiles-phone.png). Open: spawn ring
+5..10 cells is now 16..32 m (sharks may surface in view); scoreboard still sits
+on two raft spawn cells (as before).
+
+2026-10-10 - Owner (Kuruk): the shark lunge was too violent. It should read as a
+displacement, not a jump out of the water; the jump is for when it eats someone. Also
+a Counter-Strike-style global kill feed below the minimap when someone dies to a
+shark, with that player's score; bots appear exactly the same as players.
+Agent choices: lunge = surge 1.2 m under the surface (`SURGE_DEPTH`); a shark with a
+swimmer it eats leaps (old peak height): it reaches the first victim on the lane as
+their avatar arrives (`LEAP_PEAK` 0.78 of the dash) and lands as the dash ends. Life
+jackets absorb the bite, so a jacket save gets no leap. Feed: up to 4 rows for 6 s under
+the radar/HUNTED pill, on its own UI layer so it also shows while you are dead; shark
+icon (Bruce/Tiger/other) + name + score at death; shark deaths only, not mines.
+Starting values, not yet tried in game.
+
+2026-10-10 - Owner (Kuruk): make a shark lane's DIRECTION readable, e.g. an icon per
+square or something animated. Agent choice: one flat arrow per lane cell (UI
+`arrow-up.png`, tinted by lane tone), drifting from the shark toward the lane's end
+(`ARROW_FLOW` 1.4 cells/s), fading in and out at the ends. Phone first look: arrows
+point along the lane; size raised to 0.85 cell after it read small. Not yet judged in play.
+
+2026-10-10 - Owner correction: the left movement arrows use the DEVICE safe inset,
+not the interactable area. No additional left/bottom padding. Informational HUD
+and gear retain the interactable inset.
+
+2026-10-10 - Owner (Kuruk): limit the map size (no endless ocean), draw a line between
+depth zones, turn off the landscape terrain generation, and always show my own nametag.
+Owner choice: 3 depth zones. Agent choices: `MAX_TIERS` 3 -> `MAX_DEPTH` 35 cells from
+the raft centre (71x71 cells, ~227 m); `inBoard` enforces it for players, sharks,
+pickups, mines and bots. The 50x50-parcel scene and all positions stay unchanged. Red
+shark net (1.2 m) at the edge; gold line where DEPTH 2 starts, coral where DEPTH 3
+starts; the same lines on the radar; HUD depth turns coral at DEPTH 3. DEEP DIVER target
+capped at 3. scene.json root `"landscapeTerrain": false` (docs: scene-metadata
+"Landscape terrain"; single-scene Worlds only, ignored in Genesis City). Own nametag
+shows over your avatar at all times, except while dead or loading in.
+Known consequence, not changed: tier is at most 2 now, so `WANDER_BITE_TIER` (3),
+`ELROY_TIER` (5), `SAFE_FLOOR_BY_TIER[3..]` and `SHARKS_NEAR_MAX` (9) never apply:
+non-hunter sharks never bite and at most 5 sharks spawn around you. Phone: own tag and
+radar line seen, [own-nametag-radar-phone.jpg](playtests/own-nametag-radar-phone.jpg).
+In-world lines, net and terrain-off not yet seen in game.

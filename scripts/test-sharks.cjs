@@ -51,7 +51,7 @@ async function main() {
     w.rand = box.Math.random
     w.initServer()
     w.tick = (dt) => w.systems.forEach((f) => f(dt))
-    w.player = (address = 'alice', i = 110, j = 110) => {
+    w.player = (address = 'alice', i = w.CENTER_CELL + 10, j = w.CENTER_CELL + 10) => {
       const e = w.engine.addEntity()
       w.PlayerIdentityData.create(e, { address, isGuest: false })
       w.tick(0)
@@ -71,6 +71,14 @@ async function main() {
     }
     return w
   }
+
+  // Cells below are written relative to the raft centre (C) and the board
+  // size (GRID) from the bundled config, so the scenarios keep their tier,
+  // distance from the harbor and geometry when the board is resized.
+  const { CENTER_CELL: C, MAX_DEPTH: M } = world()
+  // Deep-water scenarios sit 5 cells inside the shark net, so every shark
+  // placed around them (up to D + 4) is still on the board.
+  const D = M - 5
 
   // Independent re-implementation of "safe end cells" for the checks.
   function safety(w, p) {
@@ -162,13 +170,13 @@ async function main() {
 
   test('cap: 1 hunter near the raft, 2 deeper, +1 in a crowded sea; one chaser each', () => {
     const w = world()
-    const shallow = w.player('alice', 108, 100) // tier 0
-    const deep = w.player('bob', 140, 100) // tier 3
+    const shallow = w.player('alice', C + 8, C) // tier 0 (depth 8)
+    const deep = w.player('bob', C + D, C) // a deep tier (depth M - 5)
     w.clearSharks()
-    for (const [i, j] of [[112, 100], [108, 104], [104, 96], [112, 104], [137, 100], [143, 100], [140, 104], [140, 96], [136, 104]]) w.shark(i, j)
+    for (const [i, j] of [[C + 12, C], [C + 8, C + 4], [C + 4, C - 4], [C + 12, C + 4], [C + D - 3, C], [C + D + 3, C], [C + D, C + 4], [C + D, C - 4], [C + D - 4, C + 4]]) w.shark(i, j)
     w.round(); w.clearSharks()
-    for (const [i, j] of [[112, 100], [108, 104], [104, 96], [112, 104], [137, 100], [143, 100], [140, 104], [140, 96], [136, 104]]) w.shark(i, j)
-    Object.assign(shallow, { cellI: 108, cellJ: 100 }); Object.assign(deep, { cellI: 140, cellJ: 100 })
+    for (const [i, j] of [[C + 12, C], [C + 8, C + 4], [C + 4, C - 4], [C + 12, C + 4], [C + D - 3, C], [C + D + 3, C], [C + D, C + 4], [C + D, C - 4], [C + D - 4, C + 4]]) w.shark(i, j)
+    Object.assign(shallow, { cellI: C + 8, cellJ: C }); Object.assign(deep, { cellI: C + D, cellJ: C })
     w.round()
     const of = (p) => w.sharks().filter((s) => s.role > 0 && s.target === p.address)
     assert.ok(of(shallow).length <= 1, 'shallow cap')
@@ -177,10 +185,10 @@ async function main() {
     invariants(w)
     // Crowd: 4 players out of the raft → +1 hunter each.
     const c = world(11)
-    const home = [[140, 100], [60, 100], [100, 140], [100, 60]]
+    const home = [[C + D, C], [C - D, C], [C, C + D], [C, C - D]]
     const ps = ['a', 'b', 'c', 'd'].map((n, k) => c.player(n, ...home[k]))
     c.round(); c.clearSharks()
-    for (const [i, j] of [[143, 100], [140, 104], [137, 100], [140, 96], [144, 104]]) c.shark(i, j)
+    for (const [i, j] of [[C + D + 3, C], [C + D, C + 4], [C + D - 3, C], [C + D, C - 4], [C + D + 4, C + 4]]) c.shark(i, j)
     ps.forEach((p, k) => Object.assign(p, { dead: false, cellI: home[k][0], cellJ: home[k][1] }))
     c.round()
     assert.equal(c.sharks().filter((s) => s.role > 0 && s.target === 'a').length, 3, 'crowd bonus makes a pack of three')
@@ -189,27 +197,27 @@ async function main() {
 
   test('Bruce runs his lane straight through you when he can line up', () => {
     const w = world()
-    const p = w.player('alice', 140, 100)
+    const p = w.player('alice', C + D, C)
     w.round(); w.clearSharks()
-    w.shark(143, 100)
-    Object.assign(p, { cellI: 140, cellJ: 100 })
+    w.shark(C + D + 3, C)
+    Object.assign(p, { cellI: C + D, cellJ: C })
     w.round()
     const bruce = w.sharks().find((s) => s.role === 1 && s.target === 'alice')
     assert.ok(bruce, 'a chaser is assigned')
     const lane = []
     for (let k = 0; k <= bruce.len; k++) lane.push(KEY(bruce.cellI + bruce.dirX * k, bruce.cellJ + bruce.dirZ * k))
-    assert.ok(lane.includes(KEY(140, 100)), 'lane covers the player')
+    assert.ok(lane.includes(KEY(C + D, C)), 'lane covers the player')
     assert.equal(bruce.len, 3, 'overshoots: full lunge')
   })
 
   test('lanes are walls: paths through a lane are rejected, around it accepted', () => {
     const w = world()
-    const p = w.player('alice', 140, 100)
+    const p = w.player('alice', C + D, C)
     w.round(); w.clearSharks()
-    const s = w.shark(141, 99)
-    Object.assign(s, { dirX: 0, dirZ: 1, len: 3 }) // lane (141,99)→(141,102)
-    Object.assign(p, { cellI: 140, cellJ: 100 })
-    w.send('plan', { steps: [3] }) // right into (141,100): lane cell
+    const s = w.shark(C + D + 1, C - 1)
+    Object.assign(s, { dirX: 0, dirZ: 1, len: 3 }) // lane (C+41,C-1)→(C+41,C+2)
+    Object.assign(p, { cellI: C + D, cellJ: C })
+    w.send('plan', { steps: [3] }) // right into (C+41,C): lane cell
     assert.equal(p.path.length, w.LANES_BLOCK_PATHS ? 0 : 1)
     w.send('plan', { steps: [0, 0] }) // up twice, clear
     assert.equal(p.path.length, 2)
@@ -217,7 +225,7 @@ async function main() {
 
   test('fresh sharks get a sighting turn: no hunting, never in anyone\'s reach', () => {
     const w = world()
-    const p = w.player('alice', 140, 100)
+    const p = w.player('alice', C + D, C)
     w.round()
     const born = w.sharks()
     for (const s of born) {
@@ -233,11 +241,11 @@ async function main() {
 
   test('harpoon: tags the nearest shark, shortens its lane, three barrels sink it', () => {
     const w = world()
-    const p = w.player('alice', 140, 100)
+    const p = w.player('alice', C + D, C)
     w.round(); w.clearSharks()
-    const s = w.shark(142, 100)
+    const s = w.shark(C + D + 2, C)
     Object.assign(s, { dirX: 1, dirZ: 0, len: 3, role: 1, target: 'alice' })
-    Object.assign(p, { cellI: 140, cellJ: 100, barrels: 3 })
+    Object.assign(p, { cellI: C + D, cellJ: C, barrels: 3 })
     w.send('harpoon')
     assert.equal(p.barrels, 2); assert.equal(s.barrels, 1); assert.ok(s.len <= w.BARREL_LUNGE); assert.equal(s.role, 0)
     assert.ok(s.tagUntilTurn > w.turn())
@@ -251,12 +259,12 @@ async function main() {
 
   test('chum pulls nearby sharks off you for its turns, then lets go', () => {
     const w = world()
-    const p = w.player('alice', 140, 100)
+    const p = w.player('alice', C + D, C)
     w.round(); w.clearSharks()
-    w.shark(144, 100); w.shark(140, 104)
-    Object.assign(p, { cellI: 140, cellJ: 100, chum: 1 })
+    w.shark(C + D + 4, C); w.shark(C + D, C + 4)
+    Object.assign(p, { cellI: C + D, cellJ: C, chum: 1 })
     w.send('dropChum'); assert.equal(p.chum, 0)
-    p.cellI = 136 // swim away
+    p.cellI = C + D - 4 // swim away
     w.round()
     const lured = w.sharks().filter((s) => s.target === 'chum')
     assert.ok(lured.length >= 1, 'sharks go for the chum')
@@ -267,28 +275,28 @@ async function main() {
 
   test('a blasted hunter that resurfaces at once is fresh: no hunt carried over', () => {
     const w = world()
-    const p = w.player('alice', 140, 100)
+    const p = w.player('alice', C + D, C)
     w.round(); w.clearSharks()
-    const s = w.shark(143, 100)
-    Object.assign(p, { cellI: 140, cellJ: 100 })
+    const s = w.shark(C + D + 3, C)
+    Object.assign(p, { cellI: C + D, cellJ: C })
     w.round()
     assert.equal(s.target, 'alice')
     // A mine takes it out; the same pool slot surfaces again this tick.
-    Object.assign(p, { cellI: 140, cellJ: 100, mines: 0 })
-    w.clearSharks(); Object.assign(s, { active: true, cellI: 143, cellJ: 100, len: 0 })
+    Object.assign(p, { cellI: C + D, cellJ: C, mines: 0 })
+    w.clearSharks(); Object.assign(s, { active: true, cellI: C + D + 3, cellJ: C, len: 0 })
     const mine = [...w.Mine.values.values()].find((m) => !m.active)
-    Object.assign(mine, { active: true, cellI: 143, cellJ: 99, owner: 'alice', detonateTurn: w.turn() + 1, exploded: false })
-    p.cellI = 136
+    Object.assign(mine, { active: true, cellI: C + D + 3, cellJ: C - 1, owner: 'alice', detonateTurn: w.turn() + 1, exploded: false })
+    p.cellI = C + D - 4
     w.round()
     assert.ok(w.sharks().every((f) => f.role === 0), 'no shark hunts on its first turn after (re)surfacing')
   })
 
   test('chum takes the lured sharks off the dropper (no instant refill)', () => {
     const w = world(5)
-    const p = w.player('alice', 140, 100)
+    const p = w.player('alice', C + D, C)
     w.round(); w.clearSharks()
-    for (const [i, j] of [[143, 100], [140, 104], [137, 100], [140, 96], [144, 104], [136, 96]]) w.shark(i, j)
-    Object.assign(p, { cellI: 140, cellJ: 100 })
+    for (const [i, j] of [[C + D + 3, C], [C + D, C + 4], [C + D - 3, C], [C + D, C - 4], [C + D + 4, C + 4], [C + D - 4, C - 4]]) w.shark(i, j)
+    Object.assign(p, { cellI: C + D, cellJ: C })
     w.round()
     assert.equal(w.sharks().filter((s) => s.target === 'alice').length, 2)
     Object.assign(p, { chum: 1 })
@@ -306,11 +314,11 @@ async function main() {
 
   test('blood in the water and named deaths', () => {
     const w = world()
-    const p = w.player('alice', 140, 100)
+    const p = w.player('alice', C + D, C)
     w.round(); w.clearSharks()
-    const s = w.shark(141, 100)
+    const s = w.shark(C + D + 1, C)
     Object.assign(s, { dirX: -1, dirZ: 0, len: 2, role: 1, target: 'alice' })
-    Object.assign(p, { cellI: 140, cellJ: 100, extraLives: 1 })
+    Object.assign(p, { cellI: C + D, cellJ: C, extraLives: 1 })
     w.tick(w.PLAYERS_TIME); w.tick(w.SHARKS_TIME)
     assert.equal(p.dead, false); assert.ok(p.bloodUntilTurn > w.turn(), 'bleeding after a jacket save')
     w.clearSharks()
@@ -326,7 +334,7 @@ async function main() {
     const stats = { rounds: 0, playerRounds: 0, bites: 0, onChaserLine: 0, hunted: 0, safeSum: 0 }
     for (const seed of [3, 17, 29, 41, 53]) {
       const w = world(seed)
-      const spots = [['p1', 120, 100], ['p2', 1, 1], ['p3', 199, 100], ['p4', 100, 150], ['p5', 160, 160], ['p6', 104, 104]]
+      const spots = [['p1', C + 20, C], ['p2', C - M, C - M], ['p3', C + M, C], ['p4', C, C + M], ['p5', C + M, C + M], ['p6', C + 4, C + 4]]
       const ps = spots.map(([n, i, j]) => w.player(n, i, j))
       for (let r = 0; r < 120; r++) {
         invariants(w)

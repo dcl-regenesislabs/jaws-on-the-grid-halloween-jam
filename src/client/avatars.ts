@@ -1,36 +1,49 @@
-import { AvatarModifierArea, AvatarModifierType, AvatarShape, Entity, Transform, engine } from '@dcl/sdk/ecs'
-import { Quaternion, Vector3 } from '@dcl/sdk/math'
+import {
+  AvatarModifierArea,
+  AvatarModifierType,
+  AvatarShape,
+  Billboard,
+  BillboardMode,
+  Entity,
+  TextShape,
+  Transform,
+  engine
+} from '@dcl/sdk/ecs'
+import { Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { PlayerSlot } from '../shared/components'
-import { AVATAR_Y, BOARD_SIZE, CELL, RAFT_Y, SHARKS_TIME, cellCenter, inHarbor, pathCells } from '../shared/config'
-import { myCell, mySlot } from './state'
+import { AVATAR_Y, BOARD_SIZE, CELL, NAMETAG_CELLS, RAFT_Y, SHARKS_TIME, cellCenter, inHarbor, pathCells } from '../shared/config'
+import { myCell, mySlot, scoreboard } from './state'
 import { cinema, CINEMA_SURFACE } from './cinematic'
 
 // Every player is drawn as an AvatarShape copy of their real look (profile
 // synced in their slot), gliding cell to cell: swim emote while changing
 // cell, float emote while holding a cell. On the practice raft they stand
-// on the deck with no emote. Real avatars stand on the floor
+// on the deck with walk/idle scene emotes. Real avatars stand on the floor
 // under the opaque water (see WATER_Y), still moved with movePlayerTo so the
 // camera and voice follow the game; only their nametags need hiding.
 // (AMT_HIDE_AVATARS would hide the AvatarShapes too, verified on the phone.)
 
 const SWIM = 'assets/animations/swim_emote.glb'
 const FLOAT = 'assets/animations/float_emote.glb'
+const WALK = 'assets/animations/walk_emote.glb'
+const IDLE = 'assets/animations/idle_emote.glb'
+const PRELOAD_CLIPS = [SWIM, FLOAT, WALK, IDLE]
+const LOOP_SECONDS: Record<string, number> = { [SWIM]: 1.1, [FLOAT]: 1.5, [WALK]: 0.95, [IDLE]: 2.9 }
 const GLIDE_TIME = SHARKS_TIME * 0.9 // s for a whole planned path (fits the execution)
 // Scene emotes on an AvatarShape never loop, so the float clip (1.6 s) is
 // re-triggered a little early: waiting for its end drops the client to idle
 // for a few frames. Both clips start and end on the same pose.
-const FLOAT_LOOP = 1.5
 // swim_emote.glb is 1.2 s. Repeat before its end, never at the float interval.
 const SWIM_LOOP = 1.1
 // The Godot client ignores an emote request less than 0.5 s after the last
 // one, and any request while an emote is still loading. Triggers are queued
 // until the gap has passed instead of being fired and lost.
 const EMOTE_GAP = 0.6
-// At spawn both clips are triggered once so they are loaded before the first
+// At spawn all clips are triggered once so they are loaded before the first
 // swim; the avatar waits under the opaque water (inside the view, so its
 // animation still runs) until then.
-const PRELOAD_HIDE = 2.4
+const PRELOAD_HIDE = 3
 const PRELOAD_Y = 0
 // The swim clip lays the body flat with the hips ~0.70 m above the avatar's
 // origin (float keeps them ~0.94 m up, upright). At neck depth that sinks a
@@ -38,14 +51,21 @@ const PRELOAD_Y = 0
 // swimming, easing in and out.
 const SWIM_LIFT = 0.45
 const LIFT_EASE = 0.15 // s
+// Nametag height over the mover: above the head standing or floating, lower
+// over a flat swimmer (eased with the swim lift). Starting values.
+const TAG_UP = 2.2
+const TAG_SWIM = 1.2
 
 // The AvatarShape sits at the origin of a parent "mover" that we slide each
 // frame. Changing an AvatarShape's own Transform makes the client walk it
 // there at its own pace (lagging the cell frame), so its Transform never
 // changes; the mover carries position, rotation and hide-on-death.
+// The nametag is its own top-level entity placed from the mover each frame,
+// so the mover's 0 / 1.5 scales never reach the billboarded text.
 interface Swimmer {
   mover: Entity
   entity: Entity
+  tag: Entity
   profileKey: string
   points: { x: number; y: number; z: number }[] // polyline being swum, start → end
   toX: number
@@ -57,7 +77,7 @@ interface Swimmer {
   pending: string // emote waiting for the client's trigger gap
   lastTrigger: number // clock of the last trigger actually sent
   revealAt: number // clock when the spawn preload ends
-  preloadFloat: boolean // float clip still to be preloaded
+  preloadIndex: number // next clip to preload
   stamp: number
 }
 
@@ -89,6 +109,22 @@ export function initAvatars(): void {
     modifiers: [AvatarModifierType.AMT_HIDE_NAMETAGS]
   })
   engine.addSystem(swimmerSystem)
+}
+
+// TextShape reads <size>/<color> markup: strip it, like the scoreboard does.
+function tagText(name: string): string {
+  return Array.from(name.replace(/[<>\r\n]/g, '')).slice(0, 20).join('') // by code point: no split emoji
+}
+
+function hideTag(s: Swimmer): void {
+  const t = Transform.getMutable(s.tag)
+  if (t.scale.x !== 0) t.scale = Vector3.Zero()
+}
+
+function removeSwimmer(s: Swimmer): void {
+  engine.removeEntity(s.entity)
+  engine.removeEntity(s.mover)
+  engine.removeEntity(s.tag)
 }
 
 // Where my avatar is drawn right now (mid-swim included), so the cell
@@ -143,10 +179,7 @@ function swimmerSystem(dt: number): void {
     const profileKey = `${slot.bodyShape}|${slot.name}|${wearables.join(',')}`
     let s = swimmers.get(slotEntity)
     if (!s || s.profileKey !== profileKey) {
-      if (s) {
-        engine.removeEntity(s.entity)
-        engine.removeEntity(s.mover)
-      }
+      if (s) removeSwimmer(s)
       const mover = engine.addEntity()
       Transform.create(mover, { position: Vector3.create(x, heightAt(cell.i, cell.j), z) })
       const entity = engine.addEntity()
@@ -161,20 +194,30 @@ function swimmerSystem(dt: number): void {
         eyeColor: slot.eyesColor
       })
       Transform.create(entity, { parent: mover })
+      const tag = engine.addEntity()
+      Transform.create(tag, { scale: Vector3.Zero() })
+      Billboard.create(tag, { billboardMode: BillboardMode.BM_ALL })
+      TextShape.create(tag, {
+        text: tagText(slot.name),
+        fontSize: 5,
+        textColor: Color4.White(),
+        outlineColor: Color4.Black(),
+        outlineWidth: 0.2
+      })
       s = {
-        mover, entity, profileKey, points: [point(cell.i, cell.j)], toX: x, toZ: z, t: GLIDE_TIME, lift: 0, yaw: 0,
-        emote: '', pending: '', lastTrigger: -999, revealAt: clock + PRELOAD_HIDE, preloadFloat: true, stamp: 0
+        mover, entity, tag, profileKey, points: [point(cell.i, cell.j)], toX: x, toZ: z, t: GLIDE_TIME, lift: 0, yaw: 0,
+        emote: '', pending: '', lastTrigger: -999, revealAt: clock + PRELOAD_HIDE, preloadIndex: 1, stamp: 0
       }
       swimmers.set(slotEntity, s)
       trigger(s, SWIM) // preload; float follows once the client accepts it
     }
     const preloading = clock < s.revealAt
-    if (preloading && s.preloadFloat && clock - s.lastTrigger >= EMOTE_GAP) {
-      s.preloadFloat = false
-      trigger(s, FLOAT)
+    if (preloading && s.preloadIndex < PRELOAD_CLIPS.length && clock - s.lastTrigger >= EMOTE_GAP) {
+      trigger(s, PRELOAD_CLIPS[s.preloadIndex++])
     }
 
     if (cinema.active) {
+      hideTag(s)
       const visible = isMe && !cinema.swallowed && cinema.elapsed >= 0.55
       Transform.createOrReplace(s.mover, {
         position: Vector3.create(cinema.x, CINEMA_SURFACE - 1.05 + Math.sin(clock * 2) * 0.035, cinema.z),
@@ -207,9 +250,6 @@ function swimmerSystem(dt: number): void {
       s.toX = x
       s.toZ = z
       s.t = 0
-      // Swim if any of the way is water; walking the deck needs no emote.
-      if (s.points.length > 1 && s.points.some((p) => p.y === AVATAR_Y)) play(s, SWIM)
-      else s.emote = ''
     }
 
     s.t += dt
@@ -220,6 +260,11 @@ function swimmerSystem(dt: number): void {
     const a = s.points[at]
     const b = s.points[Math.min(at + 1, segs)]
     const f = segs > 0 ? e * segs - at : 1
+    const done = k >= 1 || segs === 0
+    // Parent movement doesn't trigger native locomotion. Select a scene
+    // emote for the current segment, then explicitly settle at the endpoint.
+    const desired = done ? (onRaft ? IDLE : FLOAT) : (a.y === AVATAR_Y || b.y === AVATAR_Y ? SWIM : WALK)
+    if (!preloading && (s.emote !== desired || clock - s.lastTrigger >= LOOP_SECONDS[desired])) play(s, desired)
     if (b.x !== a.x || b.z !== a.z) s.yaw = (Math.atan2(b.x - a.x, b.z - a.z) * 180) / Math.PI
     const liftTarget = s.emote === SWIM ? SWIM_LIFT : 0
     s.lift += (liftTarget - s.lift) * Math.min(1, dt / LIFT_EASE)
@@ -229,17 +274,21 @@ function swimmerSystem(dt: number): void {
       scale: slot.dead ? Vector3.Zero() : Vector3.One()
     })
 
-    // Settle into float when the glide ends; keep treading on a loop. On the
-    // raft just stand (a running clip ends on its own). Nothing is asked of
-    // the client while the spawn preload is running.
+    // Name always over me; over other players only near me (by cell); never
+    // over the dead, and none while the camera is zoomed onto the scoreboard.
+    const tagNear =
+      isMe ||
+      (me !== null && !me.dead && Math.max(Math.abs(slot.cellI - me.cellI), Math.abs(slot.cellJ - me.cellJ)) <= NAMETAG_CELLS)
+    if (slot.dead || preloading || !tagNear || scoreboard.open) hideTag(s)
+    else {
+      const pos = Transform.get(s.mover).position
+      const tag = Transform.getMutable(s.tag) // mutable, not replace: unchanged frames aren't resent
+      tag.position = Vector3.create(pos.x, pos.y + TAG_UP + (TAG_SWIM - TAG_UP) * (s.lift / SWIM_LIFT), pos.z)
+      if (tag.scale.x !== 1) tag.scale = Vector3.One()
+    }
+
+    // Nothing is asked of the client while the spawn preload is running.
     if (preloading) continue
-    const done = k >= 1
-    if (onRaft && done) {
-      s.emote = ''
-      s.pending = ''
-    } else if (s.emote === SWIM && done) play(s, FLOAT)
-    else if (s.emote === FLOAT && clock - s.lastTrigger > FLOAT_LOOP) play(s, FLOAT)
-    else if (s.emote === '' && !onRaft && done) play(s, FLOAT)
 
     if (s.pending && clock - s.lastTrigger >= EMOTE_GAP) {
       trigger(s, s.pending)
@@ -250,8 +299,7 @@ function swimmerSystem(dt: number): void {
   // Players who left.
   for (const [slotEntity, s] of swimmers) {
     if (!PlayerSlot.getOrNull(slotEntity)) {
-      engine.removeEntity(s.entity)
-      engine.removeEntity(s.mover)
+      removeSwimmer(s)
       swimmers.delete(slotEntity)
     }
   }

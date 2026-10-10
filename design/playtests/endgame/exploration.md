@@ -82,3 +82,17 @@ has no explicit walking animation. Idle resumes naturally after an emote ends.
 Suggested next try: use direct AvatarShape movement on the raft to exercise
 native locomotion, checking alignment with the cell frame/camera on the phone.
 No scene code changed; cross-client behavior and visual quality remain untested.
+
+Walk/idle fix (2026-10-10): prior download was only in a temporary folder;
+neither clip nor playback had been added to the scene. Added official walk/idle
+scene GLBs and wired current path-segment selection: raft walk -> raft idle,
+water movement -> swim -> float. Parent-driven grid motion stays intact.
+All four clips preload under water and repeat through the existing trigger gap.
+Source/license recorded in design/references.md.
+Build/type-check and whitespace checks pass. Reused preview on port 8000 and
+the running Motorola client; real right/left/right touch taps produced moving
+walk poses and standing poses between moves. Evidence: [phone recording](walk-idle-phone.mp4)
+and [sampled frames](walk-idle-phone.jpg). This is an agent smoke check; some
+frames are occluded by the scoreboard. Water transitions, other body shapes,
+PC mobile/desktop playback and owner animation-quality judgment remain pending.
+Next: owner checks raft movement and raft/water transitions in the open preview.

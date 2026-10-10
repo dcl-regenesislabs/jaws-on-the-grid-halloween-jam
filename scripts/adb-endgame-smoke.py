@@ -36,8 +36,17 @@ def screenshot(name):
     adb('shell', 'screencap', '-p', '/sdcard/endgame-smoke.png')
     adb('pull', '/sdcard/endgame-smoke.png', str(out / (name + '.png')))
 
+# Board geometry from the shared config, so a CELL/GRID change can't drift.
+_config = (Path(__file__).resolve().parents[1] / 'src' / 'shared' / 'config.ts').read_text(encoding='utf-8')
+def _const(name):
+    return int(re.search(r'export const ' + name + r' = (\d+)\b', _config).group(1))
+GRID = _const('GRID')
+HARBOR_SIZE = _const('HARBOR_SIZE')
+HARBOR_MIN = GRID // 2 - HARBOR_SIZE // 2  # config: CENTER_CELL - HARBOR_SIZE / 2
+HARBOR_MAX = HARBOR_MIN + HARBOR_SIZE - 1
+
 def harbor(i, j):
-    return 97 <= i <= 102 and 97 <= j <= 102
+    return HARBOR_MIN <= i <= HARBOR_MAX and HARBOR_MIN <= j <= HARBOR_MAX
 
 log_path = Path(args.log)
 with log_path.open('r', encoding='utf-8', errors='replace') as log, (out / ('adb-' + args.mode + '.jsonl')).open('a', encoding='utf-8') as evidence:
@@ -111,7 +120,7 @@ with log_path.open('r', encoding='utf-8', errors='replace') as log, (out / ('adb
                 visits = []
                 for code in path:
                     dx, dz = dirs[code]; i += dx; j += dz; visits.append((i, j))
-                if any(not (0 <= x < 200 and 0 <= z < 200) for x, z in visits) or (i, j) in danger:
+                if any(not (0 <= x < GRID and 0 <= z < GRID) for x, z in visits) or (i, j) in danger:
                     continue
                 distance = min((abs(i-x['cellI']) + abs(j-x['cellJ']) for x in targets), default=0)
                 collected = sum((x['cellI'], x['cellJ']) in visits for x in targets)

@@ -13,7 +13,7 @@ import {
 } from '@dcl/sdk/ecs'
 import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
-import { CELL, GRID, VIEW_CELLS, WATER_Y } from '../shared/config'
+import { CELL, DEPTH_STEP, MAX_DEPTH, MAX_TIERS, VIEW_CELLS, WATER_Y, depthSquare } from '../shared/config'
 
 const WATER_TEXTURE = 'assets/scene/water/water-tile-v2.png'
 const WATER_BUMP_TEXTURE = 'assets/scene/water/water-bump.png'
@@ -96,7 +96,7 @@ export function createWaterFloor(size: number, y: number, cx: number, cz: number
 }
 
 // Visible board grid, only around the player: a window of glowing strips
-// that slides with you cell by cell, clipped at the board edge. Opaque and
+// that slides with you cell by cell, clipped at the shark net. Opaque and
 // thick: alpha blending against the scrolling water makes thin translucent
 // lines flicker and break apart.
 const LINES = 2 * VIEW_CELLS + 2 // per axis
@@ -126,10 +126,11 @@ export function gridWindowSystem(ci: number, cj: number): void {
   windowI = ci
   windowJ = cj
   // Cell-boundary coordinates (in cells) covered by the window, clipped.
-  const i0 = Math.max(0, ci - VIEW_CELLS)
-  const i1 = Math.min(GRID, ci + VIEW_CELLS + 1)
-  const j0 = Math.max(0, cj - VIEW_CELLS)
-  const j1 = Math.min(GRID, cj + VIEW_CELLS + 1)
+  const net = depthSquare(MAX_DEPTH + 1)
+  const i0 = Math.max(net.lo, ci - VIEW_CELLS)
+  const i1 = Math.min(net.hi, ci + VIEW_CELLS + 1)
+  const j0 = Math.max(net.lo, cj - VIEW_CELLS)
+  const j1 = Math.min(net.hi, cj + VIEW_CELLS + 1)
   for (const line of gridLines) {
     const t = Transform.getMutable(line.e)
     const at = (line.vertical ? ci : cj) - VIEW_CELLS + line.k
@@ -149,27 +150,41 @@ export function gridWindowSystem(ci: number, cj: number): void {
   }
 }
 
-// Shark net around the whole board: the end of the endless ocean.
-export function createBoardEdge(): void {
-  const size = GRID * CELL
-  const t = 0.3
+// Four boxes outlining the square of cells with depth < d.
+function depthOutline(d: number, width: number, y: number, height: number, albedo: Color4, emissive: Color3, intensity: number): void {
+  const { lo, hi } = depthSquare(d)
+  const a = lo * CELL
+  const b = hi * CELL
+  const mid = (a + b) / 2
+  const len = b - a + width
   for (const [x, z, sx, sz] of [
-    [t, size / 2, t, size],
-    [size - t, size / 2, t, size],
-    [size / 2, t, size, t],
-    [size / 2, size - t, size, t]
+    [a, mid, width, len],
+    [b, mid, width, len],
+    [mid, a, len, width],
+    [mid, b, len, width]
   ]) {
-    const net = engine.addEntity()
-    Transform.create(net, {
-      position: Vector3.create(x, WATER_Y + 0.35, z),
-      scale: Vector3.create(sx, 0.7, sz)
-    })
-    MeshRenderer.setBox(net)
-    Material.setPbrMaterial(net, {
-      albedoColor: Color4.create(0.9, 0.15, 0.1, 1),
-      emissiveColor: Color3.create(0.6, 0.05, 0.02),
-      emissiveIntensity: 0.6,
-      castShadows: false
-    })
+    const e = engine.addEntity()
+    Transform.create(e, { position: Vector3.create(x, y, z), scale: Vector3.create(sx, height, sz) })
+    MeshRenderer.setBox(e)
+    Material.setPbrMaterial(e, { albedoColor: albedo, emissiveColor: emissive, emissiveIntensity: intensity, castShadows: false })
+  }
+}
+
+// Shark net around the playable square: the end of the ocean (MAX_DEPTH).
+export function createBoardEdge(): void {
+  depthOutline(MAX_DEPTH + 1, 0.3, WATER_Y + 0.6, 1.2, Color4.create(0.9, 0.15, 0.1, 1), Color3.create(0.6, 0.05, 0.02), 0.6)
+}
+
+// A line on the water where each deeper tier starts, in the HUD's depth
+// colour for that tier (gold, then coral). Wider and a touch higher than the
+// grid strips it lies on, so it reads over them; below your cell frame.
+const DEPTH_LINE_COLORS: [number, number, number][] = [
+  [1, 0.84, 0.32], // into DEPTH 2
+  [1, 0.36, 0.34] // into DEPTH 3
+]
+export function createDepthLines(): void {
+  for (let t = 1; t < MAX_TIERS; t++) {
+    const [r, g, b] = DEPTH_LINE_COLORS[Math.min(t - 1, DEPTH_LINE_COLORS.length - 1)]
+    depthOutline(t * DEPTH_STEP, 0.4, WATER_Y + 0.24, 0.1, Color4.create(r, g, b, 1), Color3.create(r, g, b), 0.9)
   }
 }

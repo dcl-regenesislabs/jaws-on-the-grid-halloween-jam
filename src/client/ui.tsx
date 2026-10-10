@@ -4,7 +4,18 @@ import { isMobile } from '@dcl/sdk/platform'
 import ReactEcs, { Label, ReactEcsRenderer, UiEntity } from '@dcl/sdk/react-ecs'
 
 import { GameState, Mine, Pickup, PlayerSlot, Shark } from '../shared/components'
-import { HARBOR_MIN, HARBOR_SIZE, PLAYERS_TIME, SHARKS_TIME, inHarbor, tierOf } from '../shared/config'
+import {
+  DEPTH_STEP,
+  HARBOR_MIN,
+  HARBOR_SIZE,
+  MAX_DEPTH,
+  MAX_TIERS,
+  PLAYERS_TIME,
+  SHARKS_TIME,
+  depthSquare,
+  inHarbor,
+  tierOf
+} from '../shared/config'
 import { objectiveProgress, objectives } from '../shared/objectives'
 import { room } from '../shared/messages'
 import { canDropChum, canHarpoon, canPlantMine, canPlanNow, canStep, requestCancel, requestChum, requestHarpoon, requestMine, requestStep, sharkInHarpoonRange } from './input'
@@ -13,11 +24,12 @@ import { explosionFlash } from './mines'
 import { cinema } from './cinematic'
 import { scoreboard } from './state'
 import { ScoreboardUi } from './scoreboard-ui'
+import { openAdminPanel } from './admin-ui'
 
 // HUD for a 1600×720 mobile canvas, inside the interactable area (clear of
 // the Explorer's own left-hand controls). Layout:
 //   top-left stats · top-center turn pill · top-right radar
-//   bottom-left d-pad; bottom-right gear (mine, barrel, chum)
+//   bottom-left d-pad in the device safe area; bottom-right gear in interactable
 
 // Bumped manually per deploy to spot stale cached bundles on the phone.
 export const BUILD_TAG = 'hud-2'
@@ -31,6 +43,7 @@ let uiClock = 0
 engine.addSystem((dt) => {
   uiClock += dt
   updatePickupNotice()
+  updateKillFeed()
   if (serverConnected) return
   for (const [_e] of engine.getEntitiesWith(GameState)) {
     serverConnected = true
@@ -59,11 +72,16 @@ export function setupUi() {
   ReactEcsRenderer.setUiRenderer(uiComponent, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'interactable', zIndex: 10 })
   // Explosion feedback only; changing turns never tints the screen.
   ReactEcsRenderer.addUiRenderer(engine.addEntity(), vignette, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'none', zIndex: 0 })
-  // Only the death modal uses screen centering; gameplay shares one inset.
+  // Movement uses the device safe area so the left thumb reaches the arrows.
+  ReactEcsRenderer.addUiRenderer(engine.addEntity(), movePad, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'device', zIndex: 20 })
+  // The death modal is centered on the device.
   ReactEcsRenderer.addUiRenderer(engine.addEntity(), centerHud, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'device', zIndex: 15 })
   // No server / guest account: full-screen blockers over everything,
   // Explorer areas included.
   ReactEcsRenderer.addUiRenderer(engine.addEntity(), blocker, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'none', zIndex: 30 })
+  // Kill feed on its own layer: it stays up while you are dead (your own
+  // ending included), when the rest of the HUD is hidden.
+  ReactEcsRenderer.addUiRenderer(engine.addEntity(), killFeedHud, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'interactable', zIndex: 12 })
   ReactEcsRenderer.addUiRenderer(engine.addEntity(), cinematicOverlay, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'none', zIndex: 5 })
 }
 
@@ -150,7 +168,7 @@ function Icon(props: { key?: string; src: string; size: number; margin?: { left?
 
 // --- top-left: score, jackets and depth in one pill ---
 function Stats(props: { score: number; lives: number; harbor: boolean; tier: number }) {
-  const depthColor = props.harbor ? MINT : props.tier >= 3 ? CORAL : props.tier >= 1 ? GOLD : AQUA
+  const depthColor = props.harbor ? MINT : props.tier >= 2 ? CORAL : props.tier >= 1 ? GOLD : AQUA
   return (
     <UiEntity
       uiTransform={{
@@ -291,9 +309,48 @@ function Dot(props: { key?: string; di: number; dj: number; size: number; color:
   )
 }
 
+// Square of cells with depth < d as up to four bars, clipped to the radar
+// by hand (not relying on overflow clipping).
+function radarOutline(key: string, d: number, ci: number, cj: number, color: Color4, w: number): any[] {
+  const cellPx = RADAR / (2 * RADAR_CELLS)
+  const { lo, hi } = depthSquare(d)
+  const left = RADAR / 2 + (lo - (ci + 0.5)) * cellPx
+  const right = RADAR / 2 + (hi - (ci + 0.5)) * cellPx
+  const top = RADAR / 2 - (hi - (cj + 0.5)) * cellPx
+  const bottom = RADAR / 2 - (lo - (cj + 0.5)) * cellPx
+  const bars: any[] = []
+  const bar = (k: string, x: number, y: number, bw: number, bh: number) =>
+    bars.push(
+      <UiEntity
+        key={`${key}${k}`}
+        uiTransform={{ positionType: 'absolute', position: { left: x, top: y }, width: bw, height: bh }}
+        uiBackground={{ color }}
+      />
+    )
+  const y0 = Math.max(0, top)
+  const y1 = Math.min(RADAR, bottom)
+  const x0 = Math.max(0, left)
+  const x1 = Math.min(RADAR, right)
+  if (y1 > y0) {
+    if (left >= 0 && left <= RADAR) bar('l', left - w / 2, y0, w, y1 - y0)
+    if (right >= 0 && right <= RADAR) bar('r', right - w / 2, y0, w, y1 - y0)
+  }
+  if (x1 > x0) {
+    if (top >= 0 && top <= RADAR) bar('t', x0, top - w / 2, x1 - x0, w)
+    if (bottom >= 0 && bottom <= RADAR) bar('b', x0, bottom - w / 2, x1 - x0, w)
+  }
+  return bars
+}
+
 function Radar(props: { ci: number; cj: number; myAddress: string }) {
   const dots: any[] = []
   const cellPx = RADAR / (2 * RADAR_CELLS)
+
+  // Depth lines (gold, coral) and the shark net (red), as on the water.
+  for (let t = 1; t < MAX_TIERS; t++) {
+    dots.push(...radarOutline(`d${t}`, t * DEPTH_STEP, props.ci, props.cj, t === 1 ? rgba(1, 0.84, 0.32, 0.55) : rgba(1, 0.36, 0.34, 0.6), 2))
+  }
+  dots.push(...radarOutline('net', MAX_DEPTH + 1, props.ci, props.cj, rgba(0.95, 0.2, 0.15, 0.9), 3))
 
   // Harbor square, when in range.
   // Raft center relative to my cell center, in cells.
@@ -349,6 +406,7 @@ function Radar(props: { ci: number; cj: number; myAddress: string }) {
         borderColor: EDGE
       }}
       uiBackground={{ color: INK }}
+      onMouseDown={openAdminPanel}
     >
       <UiEntity uiTransform={{ width: RADAR, height: RADAR, overflow: 'hidden', borderRadius: 18 }}>
         {/* faint crosshair */}
@@ -532,7 +590,7 @@ function HuntedPill() {
   const fins = []
   for (let n = 0; n < count; n++) fins.push(<Icon key={`hf-${n}`} src={n === 0 ? ICON.fin : ICON.tiger} size={30} />)
   return (
-    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: RADAR + 16, right: 0 }, width: RADAR + 8, flexDirection: 'column', alignItems: 'flex-end' }}>
+    <UiEntity uiTransform={{ width: RADAR + 8, flexDirection: 'column', alignItems: 'flex-end' }}>
       {count > 0 && (
         <UiEntity uiTransform={{ width: RADAR + 8, height: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 22, borderWidth: 2, borderColor: HUNTER_RED }} uiBackground={{ color: CORAL_DEEP }}>
           {fins}
@@ -544,6 +602,86 @@ function HuntedPill() {
           <Label value="BLOOD IN THE WATER" fontSize={15} color={WHITE} textAlign="middle-center" uiTransform={{ width: RADAR, height: 30 }} />
         </UiEntity>
       )}
+    </UiEntity>
+  )
+}
+
+// --- under the radar: kill feed. Everyone eaten by a shark, bots
+// included and drawn the same, with the score they died with. ---
+const FEED_MAX = 4
+const FEED_LIFE = 6 // s on screen
+const FEED_FADE = 1 // s fading out at the end
+type FeedEntry = { id: number; name: string; score: number; killedBy: string; at: number }
+const feed: FeedEntry[] = []
+let feedSerial = 0
+// Last dead flag seen per address; a slot seen dead first (late join)
+// gets no entry.
+const deadSeen = new Map<string, boolean>()
+
+function updateKillFeed() {
+  for (const [_e, slot] of engine.getEntitiesWith(PlayerSlot)) {
+    const prev = deadSeen.get(slot.address)
+    deadSeen.set(slot.address, slot.dead)
+    if (prev !== false || !slot.dead || slot.deathCause !== 'shark') continue
+    feed.push({ id: feedSerial++, name: slot.name || 'anon', score: slot.score, killedBy: slot.killedBy, at: uiClock })
+    if (feed.length > FEED_MAX) feed.shift()
+  }
+  while (feed.length > 0 && uiClock - feed[0].at > FEED_LIFE) feed.shift()
+}
+
+// Height HuntedPill takes under the radar right now (0 when it is hidden).
+function huntedPillHeight(): number {
+  const slot = mySlot()
+  if (serverLost() || isGuest() || !slot || slot.dead || inHarbor(slot.cellI, slot.cellJ)) return 0
+  const bleeding = slot.bloodUntilTurn > gameState().turn
+  return (myHunters().count > 0 ? 44 : 0) + (bleeding ? 40 : 0)
+}
+
+const killFeedHud = () => {
+  if (scoreboard.open || feed.length === 0) return null
+  return (
+    <UiEntity uiTransform={{ width: '100%', height: '100%' }}>
+      <UiEntity
+        uiTransform={{
+          positionType: 'absolute',
+          position: { top: RADAR + 16 + huntedPillHeight() + 6, right: 0 },
+          width: 360,
+          flexDirection: 'column',
+          alignItems: 'flex-end'
+        }}
+      >
+        {feed.map((f) => (
+          <FeedRow key={`kf-${f.id}`} entry={f} />
+        ))}
+      </UiEntity>
+    </UiEntity>
+  )
+}
+
+function FeedRow(props: { key?: string; entry: FeedEntry }) {
+  const f = props.entry
+  const left = FEED_LIFE - (uiClock - f.at)
+  const name = f.name.length > 14 ? `${f.name.slice(0, 12)}..` : f.name
+  const icon = f.killedBy === 'tiger' ? ICON.tiger : f.killedBy === 'bruce' ? ICON.fin : ICON.head
+  return (
+    <UiEntity
+      uiTransform={{
+        height: 38,
+        margin: { top: 4 },
+        padding: { left: 10, right: 12 },
+        flexDirection: 'row',
+        alignItems: 'center',
+        borderRadius: 19,
+        borderWidth: 2,
+        borderColor: CORAL,
+        opacity: Math.min(1, left / FEED_FADE)
+      }}
+      uiBackground={{ color: INK }}
+    >
+      <Icon src={icon} size={28} margin={{ right: 6 }} />
+      <Label value={name} fontSize={18} color={WHITE} textAlign="middle-left" uiTransform={{ width: 160, height: 34, flexShrink: 0 }} />
+      <Icon src={ICON.coin} size={22} margin={{ left: 10, right: 4 }} />
+      <Label value={`${f.score}`} fontSize={18} color={GOLD} textAlign="middle-left" uiTransform={{ width: 72, height: 34, flexShrink: 0 }} />
     </UiEntity>
   )
 }
@@ -729,7 +867,18 @@ function ConnectionError() {
   )
 }
 
-// All gameplay widgets share the interactable area, with no extra outer inset.
+// Movement is anchored directly to the device inset, without extra padding.
+const movePad = () => {
+  const slot = mySlot()
+  if (!isMobile() || scoreboard.open || serverLost() || isGuest() || !slot || slot.dead) return null
+  return (
+    <UiEntity uiTransform={{ width: '100%', height: '100%' }}>
+      <DPad />
+    </UiEntity>
+  )
+}
+
+// Informational HUD and gear use the interactable area, without extra padding.
 const uiComponent = () => {
   if (scoreboard.open) return null
   const slot = mySlot()
@@ -751,13 +900,14 @@ const uiComponent = () => {
         </UiEntity>
         <UiEntity uiTransform={{ width: 360, height: 112, flexShrink: 0 }}>
           {slot && cell && <Radar ci={cell.i} cj={cell.j} myAddress={slot.address} />}
-          <HuntedPill />
+          <UiEntity uiTransform={{ positionType: 'absolute', position: { top: RADAR + 16, right: 0 }, width: 360, flexDirection: 'column', alignItems: 'flex-end' }}>
+            <HuntedPill />
+          </UiEntity>
         </UiEntity>
       </UiEntity>
       {playersTurn && (myTargetInDanger() || myTargetInBlast()) && <LaneWarning />}
       <EquipmentStatus />
       <GearRow />
-      {isMobile() && slot && <DPad />}
       {harbor && <RaftHint />}
     </UiEntity>
   )

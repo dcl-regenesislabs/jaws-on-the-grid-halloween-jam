@@ -1,7 +1,7 @@
 import { Billboard, BillboardMode, Entity, Material, MeshRenderer, TextShape, Transform, engine } from '@dcl/sdk/ecs'
 import { Color3, Color4, Vector3 } from '@dcl/sdk/math'
 import { Mine } from '../shared/components'
-import { CELL, VIEW_CELLS, WATER_Y, blastCells, cellCenter } from '../shared/config'
+import { CELL, PROP_SCALE, VIEW_CELLS, WATER_Y, blastCells, cellCenter } from '../shared/config'
 import { gameState, mySlot } from './state'
 import { sfx, SFX } from './audio'
 
@@ -69,11 +69,11 @@ export function mineVisualSystem(dt: number): void {
     const bursting = mine.exploded && age < 0.7
     const visible = mine.active && near && (!mine.exploded || bursting)
     const sprite = Transform.getMutable(v.sprite)
-    sprite.position = Vector3.create(cellCenter(mine.cellI), WATER_Y + 1.05, cellCenter(mine.cellJ))
+    sprite.position = Vector3.create(cellCenter(mine.cellI), WATER_Y + 1.05 * PROP_SCALE, cellCenter(mine.cellJ))
     const pulse = 1 + Math.sin(clock * (remaining === 1 ? 13 : 5)) * 0.08
-    sprite.scale = visible && !mine.exploded ? Vector3.create(2 * pulse, 2 * pulse, 2 * pulse) : HIDDEN
+    sprite.scale = visible && !mine.exploded ? Vector3.scale(Vector3.One(), 2 * pulse * PROP_SCALE) : HIDDEN
     const label = Transform.getMutable(v.label)
-    label.position = Vector3.create(cellCenter(mine.cellI), WATER_Y + 2.7, cellCenter(mine.cellJ))
+    label.position = Vector3.create(cellCenter(mine.cellI), WATER_Y + 2.7 * PROP_SCALE, cellCenter(mine.cellJ))
     label.scale = visible && !mine.exploded ? Vector3.One() : HIDDEN
     const text = `${remaining}`
     if (TextShape.get(v.label).text !== text) TextShape.getMutable(v.label).text = text
@@ -84,7 +84,7 @@ export function mineVisualSystem(dt: number): void {
       if (!visible || !cell) { t.scale = HIDDEN; return }
       t.position = Vector3.create(cellCenter(cell[0]), WATER_Y + 0.09, cellCenter(cell[1]))
       // Small warning plates leave shark lanes and grid edges readable.
-      const size = bursting ? CELL - 0.25 : remaining === 1 ? 1.35 + pulse * 0.15 : 0.65
+      const size = bursting ? CELL - 0.25 : remaining === 1 ? 1.35 + pulse * 0.15 : 0.65 // blast cue: not shrunk
       t.scale = Vector3.create(size, bursting ? Math.max(0.06, (1 - age / 0.7) * 2.2) : 0.045, size)
       const mat = Material.getFlatMutable(e)
       mat.emissiveIntensity = bursting ? Math.max(0, 3 * (1 - age / 0.7)) : remaining === 1 ? 1.4 : 0.5

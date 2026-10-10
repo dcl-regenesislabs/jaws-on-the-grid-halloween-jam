@@ -29,6 +29,12 @@ function myAddress(): string {
   return PlayerIdentityData.getOrNull(engine.PlayerEntity)?.address ?? ''
 }
 
+export function openAdminPanel(): void {
+  if (!isAdminAddress(myAddress())) return
+  open = true
+  resetArmedUntil = -1
+}
+
 function adminState(): { bots: number; resets: number } | null {
   for (const [_e, s] of engine.getEntitiesWith(AdminState)) return s
   return null
@@ -65,7 +71,11 @@ function PanelButton(props: { label: string; width: number; height: number; colo
 }
 
 const adminPanel = () => {
-  if (!isAdminAddress(myAddress())) return null
+  if (!isAdminAddress(myAddress())) {
+    open = false
+    return null
+  }
+  if (!open) return null
   const state = adminState()
   if (state && wantBots === state.bots) wantBots = -1
   const bots = wantBots >= 0 ? wantBots : state?.bots ?? 0
@@ -80,14 +90,14 @@ const adminPanel = () => {
   return (
     <UiEntity uiTransform={{ positionType: 'absolute', position: { left: 0, top: 120 }, flexDirection: 'column', alignItems: 'flex-start' }}>
       <UiEntity
-        uiTransform={{ width: 150, height: 56, borderRadius: 28, borderWidth: 2, borderColor: open ? GOLD : EDGE, alignItems: 'center', justifyContent: 'center' }}
+        uiTransform={{ width: 150, height: 56, borderRadius: 28, borderWidth: 2, borderColor: GOLD, alignItems: 'center', justifyContent: 'center' }}
         uiBackground={{ color: INK }}
         onMouseDown={() => {
-          open = !open
+          open = false
           resetArmedUntil = -1
         }}
       >
-        <Label value={open ? 'CLOSE' : 'ADMIN'} fontSize={22} color={GOLD} textAlign="middle-center" uiTransform={{ width: 140, height: 48 }} />
+        <Label value="CLOSE" fontSize={22} color={GOLD} textAlign="middle-center" uiTransform={{ width: 140, height: 48 }} />
       </UiEntity>
       {open && (
         <UiEntity

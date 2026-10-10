@@ -1,6 +1,9 @@
 // Board config, shared by server (game logic) and client (presentation).
-export const CELL = 4 // meters per cell
-export const GRID = 200 // cells per side: 50 parcels × 16 m / 4 m
+export const CELL = 3.2 // meters per cell (was 4: avatars read 25% bigger against a tile)
+export const GRID = 250 // cells per side: 50 parcels × 16 m / 3.2 m
+// Props (fins, pickups, mines) were sized for 4 m cells; they shrink with the
+// cell so the avatars are what grows relative to everything else.
+export const PROP_SCALE = CELL / 4
 export const BOARD_SIZE = GRID * CELL // 800 m, the whole scene
 // Water sits above the real avatars' heads (floor collider at y=0) so they
 // are hidden underwater; the AvatarShape copies swim at AVATAR_Y instead.
@@ -69,7 +72,10 @@ export const HUNT_RADIUS = 8 // cells; a free shark this close can be assigned t
 
 // Endless feel: sharks and pickups live only around players. They surface
 // in a ring just outside view and sink once nobody is near.
-export const VIEW_CELLS = 9 // grid drawn around you (client)
+export const VIEW_CELLS = 11 // grid drawn around you (client); ~36 m like the old 9 × 4 m
+// Names float over other players this close (chebyshev, cells). Starting
+// value, not validated: tune by playtest.
+export const NAMETAG_CELLS = 3
 export const SPAWN_MIN = 5
 export const SPAWN_MAX = 10
 export const DESPAWN_CELLS = 15
@@ -78,6 +84,11 @@ export const MAX_PICKUPS = 40 // synced pool
 
 // Deeper water (farther from the harbor) = more sharks and richer coins.
 export const DEPTH_STEP = 12 // cells per depth tier
+// The ocean ends after this many tiers: a shark net at MAX_DEPTH + 1 cells
+// from the harbor center, with a line on the water at every tier boundary.
+// The 50×50-parcel scene stays as is; cells past the net are off the board.
+export const MAX_TIERS = 3
+export const MAX_DEPTH = MAX_TIERS * DEPTH_STEP - 1 // deepest playable cell (chebyshev from CENTER_CELL)
 export const SHARKS_NEAR_BASE = 3
 export const SHARKS_PER_TIER = 1
 export const SHARKS_NEAR_MAX = 9
@@ -167,7 +178,13 @@ export function inHarbor(i: number, j: number): boolean {
 }
 
 export function inBoard(i: number, j: number): boolean {
-  return i >= 0 && j >= 0 && i < GRID && j < GRID
+  return i >= 0 && j >= 0 && i < GRID && j < GRID && depthOf(i, j) <= MAX_DEPTH
+}
+
+// Square of cells with depth < d, in cell-boundary units (meters = × CELL):
+// tier t starts at d = t * DEPTH_STEP; the net sits at d = MAX_DEPTH + 1.
+export function depthSquare(d: number): { lo: number; hi: number } {
+  return { lo: CENTER_CELL - d + 1, hi: CENTER_CELL + d }
 }
 
 // Cells a shark occupies this turn: its own cell plus its lane. With
