@@ -10,6 +10,9 @@ export const Messages = {
   dropChum: Schemas.Map({}),
   respawn: Schemas.Map({}),
   saveScore: Schemas.Map({}),
+  // Admin only (ADMINS in config.ts); the server ignores anyone else.
+  adminReset: Schemas.Map({}),
+  adminBots: Schemas.Map({ count: Schemas.Int }),
 
   // Server → Client: heartbeat. Client shows the error modal without it.
   ping: Schemas.Map({})

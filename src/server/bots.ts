@@ -1,4 +1,5 @@
 import { engine, Entity } from '@dcl/sdk/ecs'
+import { Storage } from '@dcl/sdk/server'
 
 import { Pickup, PlayerSlot, Shark } from '../shared/components'
 import {
@@ -6,6 +7,7 @@ import {
   BARREL_RANGE,
   BOT_COUNT,
   BOT_LEAVE_CHANCE,
+  BOT_MAX,
   BOT_MAX_DEPTH,
   BOT_PLAY_JITTER,
   BOT_PLAY_SECONDS,
@@ -83,6 +85,11 @@ interface Bot {
 
 const bots: Bot[] = []
 const joins: number[] = [] // server clock times of bots still to join
+// How many bots to keep. Starts at BOT_COUNT; an admin can change it in game
+// (src/server/admin.ts) and the choice is stored so it survives restarts.
+let target = BOT_COUNT
+const BOT_COUNT_KEY = 'bot-count'
+const targetListeners: ((n: number) => void)[] = []
 
 function rand(min: number, max: number): number {
   return min + Math.random() * (max - min)
@@ -101,10 +108,50 @@ function chebyshev(ai: number, aj: number, bi: number, bj: number): number {
 }
 
 export function initBots(): void {
-  if (BOT_COUNT <= 0) return
   // Staggered, like people dropping in.
-  for (let n = 0; n < BOT_COUNT; n++) joins.push(rand(4, 25))
+  for (let n = 0; n < target; n++) joins.push(rand(4, 25))
   engine.addSystem(botSystem)
+  Storage.get<string>(BOT_COUNT_KEY)
+    .then((raw) => {
+      if (raw === null || raw === undefined || raw === '' || !Number.isFinite(Number(raw))) return
+      applyTarget(Number(raw), turnClock().now)
+      console.log('[bots] stored bot count', target)
+    })
+    .catch(() => {})
+}
+
+export function botTarget(): number {
+  return target
+}
+
+export function onBotTarget(cb: (n: number) => void): void {
+  targetListeners.push(cb)
+}
+
+// Admin: keep this many bots from now on (and after restarts).
+export function setBotTarget(n: number): void {
+  applyTarget(n, turnClock().now)
+  Storage.set(BOT_COUNT_KEY, String(target)).catch(() => {})
+}
+
+// Extra bots disconnect at once; missing ones drop in over the next seconds.
+function applyTarget(n: number, now: number): void {
+  target = Math.max(0, Math.min(BOT_MAX, Math.round(n) || 0))
+  while (bots.length > target) leave(bots[bots.length - 1], now, false)
+  joins.length = Math.min(joins.length, target - bots.length)
+  while (bots.length + joins.length < target) joins.push(now + rand(2, 12))
+  for (const cb of targetListeners) cb(target)
+}
+
+// Admin reset: the slots were wiped with everyone else's; each bot starts a
+// fresh life (and a fresh 5-minute clock) on the raft.
+export function resetBots(): void {
+  const now = turnClock().now
+  for (const bot of bots) {
+    newLife(bot, now)
+    bot.turn = -1
+    bot.decided = true
+  }
 }
 
 function join(now: number): void {
@@ -147,11 +194,11 @@ function newLife(bot: Bot, now: number): void {
   bot.deadSince = -1
 }
 
-function leave(bot: Bot, now: number): void {
+function leave(bot: Bot, now: number, replace = true): void {
   // Same as a player disconnecting: the slot goes on the next sync pass.
   botAddresses.delete(bot.address)
   bots.splice(bots.indexOf(bot), 1)
-  joins.push(now + rand(15, 60))
+  if (replace) joins.push(now + rand(15, 60))
   console.log('[bots] left', bot.address)
 }
 
@@ -160,7 +207,7 @@ function botSystem(): void {
   for (let n = joins.length - 1; n >= 0; n--) {
     if (clock.now < joins[n]) continue
     joins.splice(n, 1)
-    if (bots.length < BOT_COUNT) join(clock.now)
+    if (bots.length < target) join(clock.now)
   }
 
   for (const bot of bots.slice()) {

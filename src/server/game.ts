@@ -345,6 +345,55 @@ export function respawn(slot: Slot): void {
   slot.bloodUntilTurn = 0
 }
 
+// Admin reset (src/server/admin.ts): a clean World. Every swimmer, players
+// and bots alike, is back on the raft with a fresh slot (score, gear and
+// contracts cleared); sharks, pickups, mines and chum sink and a new
+// planning turn starts. The saved leaderboard is kept.
+export function resetWorld(): void {
+  for (const e of sharkPool) {
+    Object.assign(Shark.getMutable(e), {
+      active: false, phase: 'plan', len: 0, hunting: false, role: 0, target: '', barrels: 0, tagUntilTurn: 0
+    })
+  }
+  for (const e of pickupPool) Pickup.getMutable(e).active = false
+  for (const e of minePool) Object.assign(Mine.getMutable(e), { active: false, exploded: false })
+  for (const e of chumPool) Chum.getMutable(e).active = false
+  hunts.clear()
+  bornTurn.clear()
+  lastDir.clear()
+  heading.clear()
+  leftRaftTurn.clear()
+  chumBy.clear()
+  deathLockedUntil.clear()
+  for (const [entity] of engine.getEntitiesWith(PlayerSlot)) {
+    const slot = PlayerSlot.getMutable(entity)
+    Object.assign(slot, {
+      path: [], maxSteps: BASE_STEPS, score: 0, extraLives: 0, mines: 0, boostUntilTurn: 0, deathCause: '',
+      coinsCollected: 0, sharksKilled: 0, equipmentCollected: 0, deepestTier: 0, objectiveLevel: 0, objectiveMask: 0,
+      dead: false, barrels: 0, chum: 0, bloodUntilTurn: 0, killedBy: ''
+    })
+    // Off the board first so raftSpawnCell spreads everyone over free cells.
+    slot.cellI = -1
+    slot.cellJ = -1
+  }
+  for (const [entity] of engine.getEntitiesWith(PlayerSlot)) {
+    const slot = PlayerSlot.getMutable(entity)
+    const [si, sj] = raftSpawnCell()
+    slot.cellI = si
+    slot.cellJ = sj
+  }
+  phase = 'players'
+  phaseTimer = PLAYERS_TIME
+  turn += 1
+  populateSharks()
+  populatePickups()
+  planLanes()
+  const state = GameState.getMutable(gameStateEntity)
+  state.phase = phase
+  state.turn = turn
+  console.log('[server] world reset, turn', turn)
+}
+
 // Leaderboard keeps each player's best saved score. Saves run one at a
 // time so concurrent read-modify-writes don't drop each other's entries.
 export function saveScore(slot: Slot): void {

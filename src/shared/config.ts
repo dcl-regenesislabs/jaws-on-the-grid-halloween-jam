@@ -143,6 +143,11 @@ export const BOT_PLAY_JITTER = 20 // ± seconds, so bots don't all lose on the s
 export const BOT_LEAVE_CHANCE = 0.4 // after losing: leave (a new bot joins later) instead of swimming again
 export const BOT_SAVE_SCORES = false // true: bots press SAVE SCORE on the leaderboard like players
 export const BOT_MAX_DEPTH = 10 // cells from the raft's centre (its edge is 3); bots stay in sight of the raft
+export const BOT_MAX = 20 // upper limit for the admin panel's bot count
+
+// Admins: these wallets see the ADMIN panel in the game (reset the world, set
+// the number of bots). The server checks every admin command against this list.
+export const ADMINS = ['0x481bed8645804714Efd1dE3f25467f78E7Ba07d6']
 
 export function cellCenter(i: number): number {
   return (i + 0.5) * CELL
