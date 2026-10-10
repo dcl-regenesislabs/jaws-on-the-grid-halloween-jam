@@ -115,7 +115,7 @@ rot=Matrix.Rotation(math.radians(35),4,'X')
 for o in panel: o.matrix_world=Matrix.Translation((0,0,1.85)) @ rot @ o.matrix_world
 board=export_group('raft-scoreboard',[o for o in scene.objects if o not in before])
 # Working layout only. GLB origins remain local; placement lives in the composite.
-board.location=(0,-4,0)
+board.location=(0,10.5,0)
 os.makedirs(os.path.join(ROOT,'design/raft'),exist_ok=True)
 bpy.data.libraries.write(os.path.join(ROOT,'design/raft/starting-raft.blend'),{scene},fake_user=True)
 print('Saved editable raft scene and two GLBs')

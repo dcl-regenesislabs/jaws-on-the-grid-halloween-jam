@@ -13,7 +13,7 @@ Deck remains at RAFT_Y=2.52 and keeps the 6x6 safe-cell footprint. Decorative
 geometry has no physics collisions because grid movement and the real avatar's
 underwater floor remain authoritative. Board pointer collider uses the visible
 mesh, with 40 m player reach and a local safe-harbor check. Its position is
-(400, 2.52, 404), yaw 180; between cell centers, facing the overhead camera.
+(400, 2.52, 410.5), yaw 180; at the far/top edge, facing the overhead camera.
 
 Board opens a safe-area top-ten panel. Gameplay UI/inputs are suppressed until
 CLOSE; opening cancels a queued plan during planning. If a move already executing
@@ -33,7 +33,7 @@ Checks:
   scoreboard 2,112 triangles / 99 KB. Export scoped to the active Blender scene.
 - At scale 1: raft world bounds X 387.615–412.385, Y 1.185–3.78,
   Z 388–412. Board bounds X 397.25–402.75, Y 2.52–5.327,
-  Z 402.729–405.252. Inside the existing 800x800 scene. Native model origins are
+  Z 409.229–411.752 (updated far-edge placement). Inside the existing 800x800 scene. Native model origins are
   the deck surface and scoreboard feet, respectively.
 - Read-only phone screenshot `phone-current.png`: new raft and correctly oriented
   scoreboard visible after hot reload. This is visual evidence only; no tap or
@@ -50,3 +50,12 @@ owner's instruction to leave the active client alone remains in effect.
 Next check (agent-suggested): when the phone is free, point at the physical board,
 check empty/saved rows and CLOSE, then move off the raft. Check the same flow on
 the PC mobile client and desktop after the phone. No owner playtest feedback yet.
+
+Owner follow-up: ropes had floating ends; connect the corners, and move the board
+to the far/top edge (owner clarified screen-space placement, not overhead height).
+Replaced four short dangling rope meshes with four complete sagging perimeter
+spans. All eight endpoints meet post centers at the 0.62 m lashing height.
+Raft now 9,968 triangles; bounds and decorative-only collisions unchanged.
+Updated GLB, editable Blender source, authoring script and composite placement.
+Blender material preview inspected; build/type check passed. Active client left
+alone; the new geometry and placement still need an in-world owner check.
