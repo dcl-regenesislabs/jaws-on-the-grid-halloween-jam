@@ -33,9 +33,10 @@ import { initAudio, sfx, SFX } from './audio'
 import { initAvatars, myAvatarPosition } from './avatars'
 import { cinema, initCinematic } from './cinematic'
 import { inputSystem_ } from './input'
+import { initHarbor } from './harbor'
 import { cameraShake, mineVisualSystem } from './mines'
 import { gameState, myCell, myPlanCells, mySlot, phaseClockSystem } from './state'
-import { createBoardEdge, createGridWindow, createHarbor, createWaterFloor, gridWindowSystem, waterScrollSystem } from './water'
+import { createBoardEdge, createGridWindow, createWaterFloor, gridWindowSystem, waterScrollSystem } from './water'
 
 // Everything presentation-only lives here: water, grid, camera, touch HUD
 // config, avatar follow, and shark/pickup visuals driven by synced state.
@@ -112,7 +113,7 @@ export function initClient() {
   // around you, so it unrolls as you swim.
   createWaterFloor(BOARD_SIZE, WATER_Y, BOARD_SIZE / 2, BOARD_SIZE / 2)
   createGridWindow()
-  createHarbor()
+  initHarbor()
   createBoardEdge()
   createMyCellMarker()
 

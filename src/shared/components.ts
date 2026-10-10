@@ -66,6 +66,12 @@ export const GameState = engine.defineComponent('game-state', {
   turn: Schemas.Int
 })
 
+// Persisted top ten, published by the authority for late joiners as well.
+export const Leaderboard = engine.defineComponent('saved-leaderboard', {
+  status: Schemas.String, // loading | ready | error
+  entries: Schemas.Array(Schemas.Map({ name: Schemas.String, score: Schemas.Int }))
+})
+
 // The exploded state remains for a whole round so clients cannot miss the FX.
 export const Mine = engine.defineComponent('sea-mine', {
   active: Schemas.Boolean,

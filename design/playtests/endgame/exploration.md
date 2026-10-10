@@ -71,3 +71,14 @@ zero extra inset on mobile, no decorative border. [Final screenshot](bevy-deskto
 Build/type-check and diff whitespace check pass. Browser left on the practice
 raft. This completes the basic PC layout/input check, not every gear interaction;
 PC mobile emulation and the remaining phone gear checks above remain unverified.
+
+Animation source check (2026-10-10, agent; no runtime playtest): the local Godot
+release checkout registers walk/idle in the avatar locomotion animation tree,
+not in the default/utility emote IDs. Its emote controller rejects unknown IDs,
+so expressionTriggerId = 'walk' or 'idle' is not a supported shortcut there.
+Scene avatars.ts moves a parent mover and leaves the AvatarShape transform
+fixed, intentionally avoiding client interpolation; deck movement therefore
+has no explicit walking animation. Idle resumes naturally after an emote ends.
+Suggested next try: use direct AvatarShape movement on the raft to exercise
+native locomotion, checking alignment with the cell frame/camera on the phone.
+No scene code changed; cross-client behavior and visual quality remain untested.

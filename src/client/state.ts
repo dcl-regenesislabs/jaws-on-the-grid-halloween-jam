@@ -22,6 +22,7 @@ export function isGuest(): boolean {
 // My slot by wallet address. Without a known address (guest/review mode,
 // where the server may key slots by entity), a lone slot is mine.
 export const endingPreview = { active: false }
+export const scoreboard = { open: false }
 // Authoring toggle: turn off when the cinematic review is finished.
 const ENDING_DEBUG_ENABLED = true
 let previewSlot: ReturnType<typeof PlayerSlot.getOrNull> = null

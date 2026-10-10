@@ -3,7 +3,7 @@ import { InputAction, PointerEventType, engine, inputSystem } from '@dcl/sdk/ecs
 import { BARREL_RANGE, MAX_MINES, PLAYERS_TIME, STEP_DIRS, inBoard, inHarbor, pathCells } from '../shared/config'
 import { Chum, Mine, Shark } from '../shared/components'
 import { room } from '../shared/messages'
-import { gameState, isWall, myMaxSteps, myPlan, mySlot, pendingPlan, phaseElapsed } from './state'
+import { gameState, isWall, myMaxSteps, myPlan, mySlot, pendingPlan, phaseElapsed, scoreboard } from './state'
 
 // Input. During the players' turn you plan a path of up to maxSteps cells:
 // each arrow adds a step, the opposite of the last step undoes it, CANCEL
@@ -50,6 +50,7 @@ export function canPlanNow(): boolean {
   const slot = mySlot()
   return (
     !!slot &&
+    !scoreboard.open &&
     !slot.dead &&
     gameState().phase === 'players' &&
     phaseElapsed() < PLAYERS_TIME - LATE_TAP

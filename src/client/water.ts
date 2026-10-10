@@ -13,7 +13,7 @@ import {
 } from '@dcl/sdk/ecs'
 import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 
-import { CELL, GRID, HARBOR_MIN, HARBOR_SIZE, RAFT_Y, VIEW_CELLS, WATER_Y } from '../shared/config'
+import { CELL, GRID, VIEW_CELLS, WATER_Y } from '../shared/config'
 
 const WATER_TEXTURE = 'assets/scene/water/water-tile-v2.png'
 const WATER_BUMP_TEXTURE = 'assets/scene/water/water-bump.png'
@@ -146,57 +146,6 @@ export function gridWindowSystem(ci: number, cj: number): void {
       t.position = Vector3.create(((i0 + i1) / 2) * CELL, WATER_Y + 0.22, at * CELL)
       t.scale = Vector3.create((i1 - i0) * CELL, 0.1, 0.14)
     }
-  }
-}
-
-// Safe harbor: a fixed wooden raft over the HARBOR_SIZE×HARBOR_SIZE cells
-// at the center, one plank per cell column, with corner buoys. Players spawn
-// and practise on it; sharks never enter.
-export function createHarbor(): void {
-  const side = HARBOR_SIZE * CELL
-  const c = (HARBOR_MIN + HARBOR_SIZE / 2) * CELL
-  const DECK = 0.5
-  for (let k = 0; k < HARBOR_SIZE; k++) {
-    const plank = engine.addEntity()
-    Transform.create(plank, {
-      position: Vector3.create(HARBOR_MIN * CELL + (k + 0.5) * CELL, RAFT_Y - DECK / 2, c),
-      scale: Vector3.create(CELL - 0.18, DECK, side)
-    })
-    MeshRenderer.setBox(plank)
-    Material.setPbrMaterial(plank, {
-      albedoColor: k % 2 === 0 ? Color4.fromHexString('#D9A35AFF') : Color4.fromHexString('#C68F4CFF'),
-      roughness: 0.9,
-      metallic: 0
-    })
-  }
-  // Cross beams lashing the planks together, just proud of the deck.
-  for (const dz of [-side / 2 + 1, side / 2 - 1]) {
-    const beam = engine.addEntity()
-    Transform.create(beam, {
-      position: Vector3.create(c, RAFT_Y + 0.03, c + dz),
-      scale: Vector3.create(side + 0.4, 0.12, 0.7)
-    })
-    MeshRenderer.setBox(beam)
-    Material.setPbrMaterial(beam, { albedoColor: Color4.fromHexString('#8A5A2EFF'), roughness: 0.9 })
-  }
-  const h = side / 2
-  for (const [dx, dz] of [
-    [-h, -h],
-    [h, -h],
-    [-h, h],
-    [h, h]
-  ]) {
-    const buoy = engine.addEntity()
-    Transform.create(buoy, {
-      position: Vector3.create(c + dx, WATER_Y + 0.4, c + dz),
-      scale: Vector3.create(0.8, 0.9, 0.8)
-    })
-    MeshRenderer.setCylinder(buoy)
-    Material.setPbrMaterial(buoy, {
-      albedoColor: Color4.fromHexString('#FF7A1AFF'),
-      emissiveColor: Color3.fromHexString('#AA4400'),
-      emissiveIntensity: 0.5
-    })
   }
 }
 

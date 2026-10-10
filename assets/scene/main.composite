@@ -418,7 +418,10 @@
               {
                 "entity": 0,
                 "open": true,
-                "children": []
+                "children": [
+                  513,
+                  514
+                ]
               },
               {
                 "entity": 1,
@@ -426,6 +429,14 @@
               },
               {
                 "entity": 2,
+                "children": []
+              },
+              {
+                "entity": 513,
+                "children": []
+              },
+              {
+                "entity": 514,
                 "children": []
               }
             ]
@@ -682,6 +693,113 @@
       },
       "data": {
         "512": {
+          "json": {}
+        }
+      }
+    },
+    {
+      "name": "core-schema::Name",
+      "jsonSchema": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "serializationType": "utf8-string"
+          }
+        },
+        "serializationType": "map"
+      },
+      "data": {
+        "513": {
+          "json": {
+            "value": "Starting Raft"
+          }
+        },
+        "514": {
+          "json": {
+            "value": "Raft Scoreboard"
+          }
+        }
+      }
+    },
+    {
+      "name": "core::Transform",
+      "data": {
+        "513": {
+          "json": {
+            "position": {
+              "x": 400,
+              "y": 2.52,
+              "z": 400
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            },
+            "rotation": {
+              "x": 0,
+              "y": 0,
+              "z": 0,
+              "w": 1
+            },
+            "parent": 0
+          }
+        },
+        "514": {
+          "json": {
+            "position": {
+              "x": 400,
+              "y": 2.52,
+              "z": 404
+            },
+            "scale": {
+              "x": 1,
+              "y": 1,
+              "z": 1
+            },
+            "rotation": {
+              "x": 0,
+              "y": 1,
+              "z": 0,
+              "w": 0
+            },
+            "parent": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "core::GltfContainer",
+      "data": {
+        "513": {
+          "json": {
+            "src": "assets/models/starting-raft.glb",
+            "visibleMeshesCollisionMask": 0,
+            "invisibleMeshesCollisionMask": 0
+          }
+        },
+        "514": {
+          "json": {
+            "src": "assets/models/raft-scoreboard.glb",
+            "visibleMeshesCollisionMask": 1,
+            "invisibleMeshesCollisionMask": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "inspector::TransformConfig",
+      "jsonSchema": {
+        "type": "object",
+        "properties": {},
+        "serializationType": "map"
+      },
+      "data": {
+        "513": {
+          "json": {}
+        },
+        "514": {
           "json": {}
         }
       }

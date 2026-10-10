@@ -1,7 +1,7 @@
 import { AvatarBase, AvatarEquippedData, engine, Entity, PlayerIdentityData } from '@dcl/sdk/ecs'
 import { syncEntity } from '@dcl/sdk/network'
 import { AUTH_SERVER_PEER_ID } from '@dcl/sdk/network/message-bus-sync'
-import { Storage } from '@dcl/sdk/server'
+import { initLeaderboard, saveLeaderboardScore } from './leaderboard'
 
 import { Chum, GameState, Mine, Pickup, PlayerSlot, Shark } from '../shared/components'
 import { objectives, objectiveProgress } from '../shared/objectives'
@@ -182,6 +182,7 @@ export function initServer() {
   gameStateEntity = engine.addEntity()
   GameState.create(gameStateEntity, { phase, turn })
   syncEntity(gameStateEntity, [GameState.componentId], enumIdSeq++)
+  initLeaderboard(enumIdSeq++)
 
   // Fixed pools, created once: surfacing/sinking only toggles `active`.
   for (let n = 0; n < MAX_SHARKS; n++) {
@@ -397,28 +398,7 @@ export function resetWorld(): void {
 // Leaderboard keeps each player's best saved score. Saves run one at a
 // time so concurrent read-modify-writes don't drop each other's entries.
 export function saveScore(slot: Slot): void {
-  const name = slot.name || 'anon'
-  const score = slot.score
-  saveQueue = saveQueue.then(() => saveToBoard(name, score)).catch(() => {})
-}
-
-let saveQueue: Promise<void> = Promise.resolve()
-
-async function saveToBoard(name: string, score: number) {
-  let board: { name: string; score: number }[] = []
-  try {
-    const raw = await Storage.get<string>('leaderboard')
-    if (raw) board = JSON.parse(raw)
-    if (!Array.isArray(board)) board = []
-  } catch {
-    board = []
-  }
-  const mine = board.find((e) => e.name === name)
-  if (mine) mine.score = Math.max(mine.score, score)
-  else board.push({ name, score })
-  board.sort((a, b) => b.score - a.score)
-  const ok = await Storage.set('leaderboard', JSON.stringify(board.slice(0, 10)))
-  if (!ok) console.error('[server] leaderboard save failed')
+  saveLeaderboardScore(slot.name || 'anon', slot.score)
 }
 
 function serverTick(dt: number) {

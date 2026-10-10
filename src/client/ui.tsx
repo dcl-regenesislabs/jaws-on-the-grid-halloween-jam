@@ -11,14 +11,16 @@ import { canDropChum, canHarpoon, canPlantMine, canPlanNow, canStep, requestCanc
 import { canPreviewEnding, endingPreview, finishEndingPreview, previewEnding, gameState, isGuest, myCell, myHunters, myMaxSteps, myPlan, myTargetInBlast, myTargetInDanger, mySlot, phaseElapsed } from './state'
 import { explosionFlash } from './mines'
 import { cinema } from './cinematic'
+import { scoreboard } from './state'
+import { ScoreboardUi } from './scoreboard-ui'
 
 // HUD for a 1600×720 mobile canvas, inside the interactable area (clear of
 // the Explorer's own left-hand controls). Layout:
 //   top-left stats · top-center turn pill · top-right radar
-//   bottom-left gear (mine, barrel, chum) · bottom-right d-pad
+//   bottom-left d-pad; bottom-right gear (mine, barrel, chum)
 
 // Bumped manually per deploy to spot stale cached bundles on the phone.
-export const BUILD_TAG = 'cinematic-1'
+export const BUILD_TAG = 'hud-2'
 
 // Connection watchdog: no synced GameState => no multiplayer server (or the
 // room is broken). GameState only exists if the server created and synced it.
@@ -53,13 +55,12 @@ function isPressed(key: string): boolean {
 }
 
 export function setupUi() {
+  ReactEcsRenderer.addUiRenderer(engine.addEntity(), ScoreboardUi, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'interactable', zIndex: 25 })
   ReactEcsRenderer.setUiRenderer(uiComponent, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'interactable', zIndex: 10 })
-  // Full-screen red wash while the sharks strike (outside the inset area).
+  // Explosion feedback only; changing turns never tints the screen.
   ReactEcsRenderer.addUiRenderer(engine.addEntity(), vignette, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'none', zIndex: 0 })
-  // D-pad in the device safe area: nearer the left thumb than the
-  // interactable area, which starts right of the Explorer's left controls.
+  // Only the death modal uses screen centering; gameplay shares one inset.
   ReactEcsRenderer.addUiRenderer(engine.addEntity(), centerHud, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'device', zIndex: 15 })
-  ReactEcsRenderer.addUiRenderer(engine.addEntity(), movePad, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'device', zIndex: 20 })
   // No server / guest account: full-screen blockers over everything,
   // Explorer areas included.
   ReactEcsRenderer.addUiRenderer(engine.addEntity(), blocker, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'none', zIndex: 30 })
@@ -99,20 +100,9 @@ function GuestBlocked() {
   )
 }
 
-const movePad = () => {
-  if (!isMobile() || serverLost() || isGuest()) return null
-  const slot = mySlot()
-  if (!slot || slot.dead) return null
-  return (
-    <UiEntity uiTransform={{ width: '100%', height: '100%' }}>
-      <DPad />
-    </UiEntity>
-  )
-}
-
 const vignette = () =>
-  !mySlot()?.dead && (explosionFlash > 0 || gameState().phase === 'sharks') ? (
-    <UiEntity uiTransform={{ width: '100%', height: '100%' }} uiBackground={{ color: explosionFlash > 0 ? Color4.create(1, 0.55, 0.08, explosionFlash * 0.18) : Color4.create(0.6, 0, 0.02, 0.16) }} />
+  !mySlot()?.dead && explosionFlash > 0 ? (
+    <UiEntity uiTransform={{ width: '100%', height: '100%' }} uiBackground={{ color: Color4.create(1, 0.55, 0.08, explosionFlash * 0.18) }} />
   ) : null
 
 // --- palette ---
@@ -166,13 +156,11 @@ function Stats(props: { score: number; lives: number; harbor: boolean; tier: num
       uiTransform={{
         positionType: 'absolute',
         position: { top: 0, left: 0 },
-        width: 330, height: 56,
+        width: 360, height: 56,
         flexDirection: 'row',
         alignItems: 'center',
         padding: { left: 8, right: 12 },
-        borderRadius: 28,
-        borderWidth: 2,
-        borderColor: EDGE
+        borderRadius: 28
       }}
       uiBackground={{ color: INK }}
     >
@@ -188,7 +176,7 @@ function Stats(props: { score: number; lives: number; harbor: boolean; tier: num
 
 // --- top-center: whose turn, time left, move state ---
 function TurnPill(props: { playersTurn: boolean; remaining: number }) {
-  const color = props.playersTurn ? MINT : CORAL
+  const color = props.playersTurn ? MINT : AQUA
   const W = 260
   return (
     <UiEntity
@@ -196,7 +184,7 @@ function TurnPill(props: { playersTurn: boolean; remaining: number }) {
         positionType: 'absolute',
         position: { top: 0, left: '50%' },
         margin: { left: -W / 2 },
-        width: W,
+        width: W, height: 72,
         flexDirection: 'column',
         alignItems: 'center'
       }}
@@ -208,20 +196,17 @@ function TurnPill(props: { playersTurn: boolean; remaining: number }) {
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          borderRadius: 24,
-          borderWidth: 2,
-          borderColor: props.playersTurn ? EDGE : CORAL
+          borderRadius: 24
         }}
-        uiBackground={{ color: props.playersTurn ? INK : CORAL_DEEP }}
+        uiBackground={{ color: INK }}
       >
         <UiEntity uiTransform={{ height: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-          {!props.playersTurn && <Icon src={ICON.fin} size={34} margin={{ right: 8 }} />}
-          <Label value={props.playersTurn ? 'PICK A MOVE' : 'GO!'} fontSize={26} color={props.playersTurn ? color : WHITE} textAlign="middle-center" uiTransform={{ width: 180, height: 40 }} />
+          <Label value={props.playersTurn ? 'PICK A MOVE' : 'GO!'} fontSize={26} color={color} textAlign="middle-center" uiTransform={{ width: 220, height: 40 }} />
         </UiEntity>
         <UiEntity uiTransform={{ width: W - 48, height: 8, margin: { top: 6 }, borderRadius: 4 }} uiBackground={{ color: rgba(1, 1, 1, 0.12) }}>
           <UiEntity
             uiTransform={{ width: Math.max(8, Math.round((W - 48) * props.remaining)), height: 8, borderRadius: 4 }}
-            uiBackground={{ color: props.playersTurn ? color : WHITE }}
+            uiBackground={{ color }}
           />
         </UiEntity>
       </UiEntity>
@@ -245,7 +230,7 @@ function RaftHint() {
       }}
       uiBackground={{ color: INK_SOFT }}
     >
-      <Label value="Plan with the arrows. Every lane bites; red ones hunt you." fontSize={16} color={MUTED} textAlign="middle-center" uiTransform={{ width: '100%', height: 24 }} />
+      <Label value="Tap arrows to plan. Avoid shark lanes." fontSize={16} color={MUTED} textAlign="middle-center" uiTransform={{ width: '100%', height: 24 }} />
       <Label value="Swim off the raft to start!" fontSize={20} color={MINT} textAlign="middle-center" uiTransform={{ width: '100%', height: 30 }} />
     </UiEntity>
   )
@@ -376,10 +361,9 @@ function Radar(props: { ci: number; cj: number; myAddress: string }) {
   )
 }
 
-// --- bottom-right: d-pad ---
+// --- bottom-left: d-pad ---
 const PAD = 92
 const PAD_GAP = 6
-const DPAD_RIGHT = 40
 
 function PadButton(props: { dir: string; icon: string; col: number; row: number; code: number }) {
   const pressed = isPressed(props.dir)
@@ -434,7 +418,7 @@ function CancelButton() {
         requestCancel()
       }}
     >
-      <Label value="X" fontSize={30} color={enabled ? CORAL : MUTED} textAlign="middle-center" />
+      <Label value="X" fontSize={30} color={enabled ? CORAL : MUTED} textAlign="middle-center" uiTransform={{ width: '100%', height: '100%' }} />
     </UiEntity>
   )
 }
@@ -442,7 +426,7 @@ function CancelButton() {
 function DPad() {
   const size = PAD * 3 + PAD_GAP * 2
   return (
-    <UiEntity uiTransform={{ positionType: 'absolute', position: { right: DPAD_RIGHT, bottom: 16 }, width: size, height: size }}>
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { left: 0, bottom: 0 }, width: size, height: size }}>
       <PadButton dir="up" icon={ICON.up} col={1} row={0} code={0} />
       <PadButton dir="left" icon={ICON.left} col={0} row={1} code={2} />
       <PadButton dir="right" icon={ICON.right} col={2} row={1} code={3} />
@@ -471,11 +455,11 @@ function StepPips(props: { used: number; max: number }) {
   )
 }
 
-// --- bottom-left: gear. Chum and barrel show up once you carry them. ---
+// --- bottom-right: gear. Chum and barrel show up once you carry them. ---
 function GearRow() {
   const slot = mySlot()
   return (
-    <UiEntity uiTransform={{ positionType: 'absolute', position: { left: 0, bottom: 0 }, flexDirection: 'row', alignItems: 'flex-end' }}>
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { right: 0, bottom: 0 }, flexDirection: 'row', alignItems: 'flex-end' }}>
       {!!slot && slot.mines > 0 && <MineButton />}
       {!!slot && slot.barrels > 0 && <BarrelButton />}
       {!!slot && slot.chum > 0 && <ChumButton />}
@@ -590,7 +574,7 @@ function Contracts() {
   const goals = objectives(slot.objectiveLevel)
   const icons = [ICON.coin, ICON.mine, ICON.down]
   return (
-    <UiEntity uiTransform={{ positionType: 'absolute', position: { left: 0, top: 64 }, width: 330, height: 40, flexDirection: 'row', alignItems: 'center', padding: { left: 12, right: 8 }, borderRadius: 20 }} uiBackground={{ color: INK_SOFT }}>
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { left: 0, top: 64 }, width: 360, height: 40, flexDirection: 'row', alignItems: 'center', padding: { left: 12, right: 8 }, borderRadius: 20 }} uiBackground={{ color: INK_SOFT }}>
       <Label value={`EXP ${slot.objectiveLevel + 1}`} fontSize={15} color={AQUA} textAlign="middle-left" uiTransform={{ width: 58, height: 36, flexShrink: 0 }} />
       {goals.map((goal, n) => {
         const done = (slot.objectiveMask & goal.bit) !== 0
@@ -639,7 +623,7 @@ function EquipmentStatus() {
   if (!slot || slot.dead) return null
   const rounds = Math.max(0, slot.boostUntilTurn - gameState().turn)
   return (
-    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 318, left: '50%' }, margin: { left: -230 }, width: 460, height: 98, flexDirection: 'column', alignItems: 'center' }}>
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 186, left: '50%' }, margin: { left: -230 }, width: 460, height: 98, flexDirection: 'column', alignItems: 'center' }}>
       {rounds > 0 && <UiEntity uiTransform={{ width: 282, height: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: AQUA, borderRadius: 18 }} uiBackground={{ color: INK }}>
         <Icon src={ICON.boost} size={36} />
         <Label value={`4 MOVES / ${Math.min(5, rounds)} ROUNDS`} fontSize={19} color={AQUA} textAlign="middle-center" uiTransform={{ width: 228, height: 40 }} />
@@ -745,60 +729,48 @@ function ConnectionError() {
   )
 }
 
-// Per-frame HUD state shared by the interactable-area and centered layers.
-function hudState() {
-  const slot = mySlot()
-  const { phase } = gameState()
-  const playersTurn = phase === 'players'
-  const dead = slot?.dead ?? false
-  const cell = myCell()
-  const plan = myPlan()
-  const maxSteps = myMaxSteps()
-  const harbor = cell ? inHarbor(cell.i, cell.j) : true
-  const tier = cell ? tierOf(cell.i, cell.j) : 0
-  const remaining = Math.max(0, 1 - phaseElapsed() / (playersTurn ? PLAYERS_TIME : SHARKS_TIME))
-
-  return { slot, playersTurn, dead, cell, plan, maxSteps, harbor, tier, remaining }
-}
-
-// Desktop adds breathing room inside the SDK safe area. Mobile uses that safe
-// area directly, preserving touch space without an additional inset.
-const hudMargin = () => isMobile() ? 0 : 24
-
-// Interactable area: corner widgets, clear of the Explorer's own controls.
+// All gameplay widgets share the interactable area, with no extra outer inset.
 const uiComponent = () => {
-  if (serverLost() || isGuest() || mySlot()?.dead) return null
-  const h = hudState()
+  if (scoreboard.open) return null
+  const slot = mySlot()
+  if (serverLost() || isGuest() || slot?.dead) return null
+  const playersTurn = gameState().phase === 'players'
+  const cell = myCell()
+  const harbor = cell ? inHarbor(cell.i, cell.j) : true
+  const remaining = Math.max(0, 1 - phaseElapsed() / (playersTurn ? PLAYERS_TIME : SHARKS_TIME))
   return (
-    <UiEntity uiTransform={{ width: '100%', height: '100%', padding: hudMargin() }} uiBackground={{ color: CLEAR }}>
-      <UiEntity uiTransform={{ width: '100%', height: '100%' }}>
-        <Stats score={h.slot?.score ?? 0} lives={h.slot?.extraLives ?? 0} harbor={h.harbor} tier={h.tier} />
-        {h.slot && h.cell && <Radar ci={h.cell.i} cj={h.cell.j} myAddress={h.slot.address} />}
-        {!h.dead && <GearRow />}
-        {!h.dead && <HuntedPill />}
-        {!h.dead && <Contracts />}
+    <UiEntity uiTransform={{ width: '100%', height: '100%' }}>
+      <UiEntity uiTransform={{ width: '100%', height: 112, flexDirection: 'row' }}>
+        <UiEntity uiTransform={{ width: 360, height: 112, flexShrink: 0 }}>
+          <Stats score={slot?.score ?? 0} lives={slot?.extraLives ?? 0} harbor={harbor} tier={cell ? tierOf(cell.i, cell.j) : 0} />
+          <Contracts />
+        </UiEntity>
+        <UiEntity uiTransform={{ flexGrow: 1, height: 112 }}>
+          <TurnPill playersTurn={playersTurn} remaining={remaining} />
+          {playersTurn && <StepPips used={myPlan().length} max={myMaxSteps()} />}
+        </UiEntity>
+        <UiEntity uiTransform={{ width: 360, height: 112, flexShrink: 0 }}>
+          {slot && cell && <Radar ci={cell.i} cj={cell.j} myAddress={slot.address} />}
+          <HuntedPill />
+        </UiEntity>
       </UiEntity>
+      {playersTurn && (myTargetInDanger() || myTargetInBlast()) && <LaneWarning />}
+      <EquipmentStatus />
+      <GearRow />
+      {isMobile() && slot && <DPad />}
+      {harbor && <RaftHint />}
     </UiEntity>
   )
 }
 
-// Device safe area: menus centered on the actual screen.
+// The death modal stays centered within the device safe area.
 const centerHud = () => {
+  if (scoreboard.open) return null
   if (serverLost() || isGuest()) return null
-  const h = hudState()
-  if (!h.dead && wasDead) savedScore = false
-  wasDead = h.dead
-  if (h.dead) return cinema.active && !cinema.ready ? null : <DeathCard score={h.slot?.score ?? 0} />
-  return (
-    <UiEntity uiTransform={{ width: '100%', height: '100%', padding: hudMargin() }} uiBackground={{ color: CLEAR }}>
-      <UiEntity uiTransform={{ width: '100%', height: '100%' }}>
-        <TurnPill playersTurn={h.playersTurn} remaining={h.remaining} />
-        {h.playersTurn && !h.dead && <StepPips used={h.plan.length} max={h.maxSteps} />}
-        {h.playersTurn && !h.dead && (myTargetInDanger() || myTargetInBlast()) && <LaneWarning />}
-        <EquipmentStatus />
-        {h.harbor && !h.dead && <RaftHint />}
-        {h.dead && <DeathCard score={h.slot?.score ?? 0} />}
-      </UiEntity>
-    </UiEntity>
-  )
+  const slot = mySlot()
+  const dead = slot?.dead ?? false
+  if (!dead && wasDead) savedScore = false
+  wasDead = dead
+  if (!dead || (cinema.active && !cinema.ready)) return null
+  return <DeathCard score={slot?.score ?? 0} />
 }

@@ -127,3 +127,14 @@ Agent defaults, not owner decisions: after losing, a bot swims again or leaves a
 new one joins later (`BOT_LEAVE_CHANCE` 0.4); bots don't save to the leaderboard
 (`BOT_SAVE_SCORES` = false). Headless check: `node scripts/test-bots.cjs`. Not yet
 seen on the phone.
+
+2026-10-10 - Owner UI correction: use the interactable area without added outer
+margins, separate gold/gear stats from PICK A MOVE, remove the GO red wash.
+Movement returns to bottom-left; action items return to bottom-right, superseding
+the PR #1 layout above. Implementation/checks: [HUD pass](playtests/endgame/ui.md).
+
+2026-10-10 - Owner (Kuruk): admin access for 0x481bed8645804714Efd1dE3f25467f78E7Ba07d6
+to RESET THE WORLD and change the number of bots in game. `ADMINS` in
+`src/shared/config.ts`. Agent choices: two-tap RESET; reset clears every slot (players
+and bots) and the sea but keeps the saved leaderboard; bot count 0..`BOT_MAX` (20),
+stored on the server so it survives restarts. Deployed 57ccf08; not yet tried in game.
