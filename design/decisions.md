@@ -55,3 +55,75 @@ Not ported (assistant proposal, accepted by Kuruk's merge request): world-shift
 8×8 tiling and AvatarShape copies (needed only because world-shift parks every
 real avatar at the center; real avatars move on the real board here), 10 s /
 3-move turns, telegraph-then-attack. `fist.png` and `cell-border.png` kept unused.
+
+## 2026-10-09 � End-game expansion (owner)
+
+- Planning changes from 2 to 3 seconds; execution stays 0.5 seconds.
+- Collect and plant sea mines: two round resolutions, center plus four cardinal
+  neighbors, lethal to players and sharks, camera shake on explosion.
+- Boost explicitly confirmed: 4 moves per round for 5 rounds.
+- Touch movement pad only when `isMobile()`; desktop keeps keyboard movement.
+- New generated mine, boost and life-jacket 2D placeholders; Meshy deferred.
+- Agent tuning for this try is in [exploration](playtests/endgame/exploration.md).
+
+Mobile docs re-read before this build: [input](https://docs.decentraland.org/creator/build-for-mobile/develop/input-on-mobile),
+[safe area](https://docs.decentraland.org/creator/build-for-mobile/develop/safe-area),
+[UI](https://docs.decentraland.org/creator/build-for-mobile/develop/ui-best-practices),
+[performance](https://docs.decentraland.org/creator/build-for-mobile/develop/optimize-performance),
+[missing features](https://docs.decentraland.org/creator/build-for-mobile/mobile-client/missing-features).
+Applied: tap-only controls, explicit virtual sizes and label boxes, safe-area HUD,
+small raster pickup sprites, pooled mines/FX; no nine-slice dependency or new lights
+or particle emitters. Native action buttons remain hidden so custom bottom-right
+buttons work. Check the docs' mobile limits/performance panel on device; build and
+triangle counts alone do not establish performance. PC phone emulation is not a
+substitute for the Motorola check.
+
+Owner follow-up: use bevy-web for PC visual verification. Global HUD margins
+on desktop only; mobile keeps only SDK safe areas, with no extra margin or
+decorative frame. Applied as a shared 24-unit inset guarded by isMobile().
+
+2026-10-10 — Owner: the execution (swim) turn goes from 0.5 s to 1 s (`SHARKS_TIME`);
+shark lunges, the timer bar and the swimmer/camera glides follow it. Not yet
+playtested on the phone.
+
+2026-10-10 — Agent (reading godot-explorer `release`, not yet confirmed on device):
+swim/float trouble on the phone is likely trigger loss, not locomotion. Godot drops
+scene-emote requests <0.5 s apart and while an emote is loading; scene emotes on an
+AvatarShape never loop. `src/client/avatars.ts` now queues triggers behind a 0.6 s gap,
+preloads swim + float at spawn (hidden under the water for 2.4 s), and re-triggers float
+at 1.5 s. Applies to every client, no `isMobile()` branch.
+
+2026-10-10 - Owner: shark-loss cinematic based on the thumbnail/Jaws poster; lone swimmer, upward shark attack through transparent water, camera transition, no actions or personal turn counting. Build/evidence: [cinematic exploration](playtests/endgame/cinematic.md).
+
+2026-10-10 - Owner: keep cinematic camera at 60 degrees (known mobile FOV issue); replace black water with a full-screen ocean image, repeat swimming continuously, and start the shark lower. No duplicate SDK report.
+
+2026-10-10 - Owner (Kuruk): smart sharks, built for the next try (plan: review of
+spawn/movement/collision plus coordinated packs).
+- Max hunters per player: 1 near the raft (tier 0), 2 deeper, +1 when 4+ players
+  are in open water ("it should adapt"); cap 3. Everyone else ignores players.
+- Pack roles: chaser ("Bruce") runs its lane straight through you; blocker ("the
+  Tiger") cuts off where you're heading.
+- Lanes are walls: paths can't cross a shark or its lane. Toggle in
+  `src/shared/config.ts` (`LANES_BLOCK_PATHS`, default on). The "only the final cell
+  bites" rule stays.
+- SLAP removed entirely (no stun).
+- JAWS extras in scope: lock-on pulse audio, blood in the water + named deaths,
+  chum/decoy pickup, yellow barrels as a pickup + HARPOON button.
+Tunables in config.ts are starting values, not validated. Records:
+[smart sharks try](playtests/smart-sharks.md).
+
+2026-10-10 - Owner (Kuruk): d-pad moves to the bottom-right (from closed PR #1); the
+gear buttons (mine, barrel, chum) move to the bottom-left. PR #1's slap removal was
+already in the smart-sharks work.
+
+2026-10-10 - Owner (Kuruk): BOTS, exactly like real players, so people can't tell.
+- Each bot is an ordinary PlayerSlot (fake wallet-style address, player-style name,
+  random base-avatars wearables and colours), drawn by every client as an AvatarShape
+  like any player. Sharks hunt them; they act only through the players' own actions.
+- Start with 2. Count is `BOT_COUNT` in `src/shared/config.ts` (0 = off).
+- A bot loses after ~5 min of play (`BOT_PLAY_SECONDS` = 300, +/- `BOT_PLAY_JITTER`):
+  it stops dodging and lets a shark get it.
+Agent defaults, not owner decisions: after losing, a bot swims again or leaves and a
+new one joins later (`BOT_LEAVE_CHANCE` 0.4); bots don't save to the leaderboard
+(`BOT_SAVE_SCORES` = false). Headless check: `node scripts/test-bots.cjs`. Not yet
+seen on the phone.

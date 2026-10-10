@@ -1,0 +1,17 @@
+{
+  "tool": "Built-in image_gen",
+  "assets": [
+    {
+      "file": "assets/images/items/sea-mine.png",
+      "prompt": "Use case: stylized-concept. Asset type: transparent game pickup sprite and future Meshy 3D concept reference for JAWS ON THE GRID. ONE isolated naval sea mine: chunky dark navy spherical metal bomb with six short rounded contact spikes, warm brass equatorial band, single glowing orange-red circular indicator, subtle salt wear. Polished stylized cartoon 3D render, simple clean slightly faceted surfaces, strong readable silhouette, soft upper-left studio lighting, three-quarter front elevated view. Centered full object occupying 80 percent of square canvas with padding. Genuine transparent RGBA background. No environment, water, ground, cast shadow, text, logos, border, watermark, extra objects or effects."
+    },
+    {
+      "file": "assets/images/items/swim-boost.png",
+      "prompt": "Use case: stylized-concept. Asset type: transparent game pickup sprite and future Meshy reference for JAWS ON THE GRID. ONE pair of compact swim flippers arranged together as a coherent power-up icon, turquoise rubber blades with bold yellow lightning-shaped inlays, dark navy foot pockets. Polished chunky stylized 3D cartoon render matching tropical shark survival game assets, subtly faceted clean surfaces, strong readable silhouette, soft upper-left studio lighting, elevated three-quarter view. Centered full objects occupying 80 percent of square canvas with padding. Genuine transparent RGBA background. No person, environment, water, ground, cast shadow, text, logos, border, watermark, extra objects or effects."
+    },
+    {
+      "file": "assets/images/items/life-jacket.png",
+      "prompt": "Use case: stylized-concept. Asset type: transparent game pickup sprite and future Meshy 3D reference for JAWS ON THE GRID. ONE empty orange life jacket, chunky padded vest with broad collar, two navy horizontal straps and clear dark buckles, small cream reflective shoulder panels. Polished stylized 3D cartoon render matching tropical shark survival game assets, simple clean slightly faceted surfaces, readable silhouette, soft upper-left studio lighting, three-quarter front view with complete garment visible. Centered object occupying 80 percent of square canvas with generous padding. Genuine transparent RGBA background. No wearer, person, mannequin, environment, water, ground, cast shadow, text, logos, border, watermark or extra objects."
+    }
+  ]
+}

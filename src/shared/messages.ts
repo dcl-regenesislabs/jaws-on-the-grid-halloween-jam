@@ -5,7 +5,9 @@ import { registerMessages } from '@dcl/sdk/network'
 export const Messages = {
   // Client → Server
   plan: Schemas.Map({ steps: Schemas.Array(Schemas.Int) }), // step codes (STEP_DIRS); [] = stay
-  attack: Schemas.Map({}),
+  plantMine: Schemas.Map({}),
+  harpoon: Schemas.Map({}),
+  dropChum: Schemas.Map({}),
   respawn: Schemas.Map({}),
   saveScore: Schemas.Map({}),
 

@@ -56,3 +56,31 @@ Built: players' turn = plan a path of up to `maxSteps` cells (2 for testing),
 execution = everyone swims while sharks dash; bite checks only the final cell.
 Next suggested (not chosen): a BOOST pickup that raises `PlayerSlot.maxSteps`
 (+1, maybe for N turns). Open: should crossing a lane mid-path also bite?
+
+## More end-game options (assistant suggestions, 2026-10-09)
+
+Current try: salvage, shark-hunt and depth contracts. Boost superseded by the
+owner's confirmed 4 moves for 5 rounds; see decisions.md.
+
+- Distress beacon: activate a buoy, then survive nearby until rescue arrives.
+  Staying near it creates a reason to plan mine placement instead of always fleeing.
+- Heavy treasure chest: carry it back to the raft; choose a safer route or spend
+  equipment to get home. Could become an optional finish to an expedition.
+- Bait: throw a fish onto a tile to lure sharks toward a planted mine. Reuses
+  the existing fish art and makes hunting more deliberate.
+
+Not selected or implemented. Owner can mix, replace, or skip these.
+
+## Smart sharks - open levers and remaining JAWS menu (assistant, 2026-10-10)
+
+Built try: [playtests/smart-sharks.md](playtests/smart-sharks.md). The chum pickup
+covers the earlier "Bait" suggestion above.
+
+Unchosen levers if packs still feel easy after play: shorter planning at depth;
+wanderers biting from a shallower tier (`WANDER_BITE_TIER`); 4-cell chaser
+lunge earlier (`ELROY_TIER`).
+Remaining JAWS-inspired ideas, not selected: submerged deep sharks (non-hunter
+lanes appear late at tier 3+), a grudge/bounty shark (gold fin that keeps its
+target, 3x bounty). The game's title and the Williams theme loops still carry the
+music-permission question recorded in references.md; the new lock-on cues are
+original synthesized heartbeats.

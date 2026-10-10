@@ -1,7 +1,7 @@
 import { PlayerIdentityData, engine } from '@dcl/sdk/ecs'
 
-import { GameState, PlayerSlot, Shark } from '../shared/components'
-import { pathCells } from '../shared/config'
+import { GameState, Mine, PlayerSlot, Shark } from '../shared/components'
+import { LANES_BLOCK_PATHS, blastCells, inHarbor, pathCells, sharkCells } from '../shared/config'
 
 // Client-side shared state: synced-slot accessors, the local phase clock and
 // my planned path for the coming execution (shown at once, server confirms).
@@ -21,7 +21,31 @@ export function isGuest(): boolean {
 
 // My slot by wallet address. Without a known address (guest/review mode,
 // where the server may key slots by entity), a lone slot is mine.
+export const endingPreview = { active: false }
+// Authoring toggle: turn off when the cinematic review is finished.
+const ENDING_DEBUG_ENABLED = true
+let previewSlot: ReturnType<typeof PlayerSlot.getOrNull> = null
+
+export function canPreviewEnding(): boolean {
+  const slot = mySlot()
+  return ENDING_DEBUG_ENABLED && !endingPreview.active && !!slot && !slot.dead && inHarbor(slot.cellI, slot.cellJ)
+}
+
+export function previewEnding(): void {
+  if (!canPreviewEnding()) return
+  const slot = mySlot()!
+  previewSlot = { ...slot, dead: true, deathCause: 'shark', path: [] }
+  pendingPlan.active = false
+  endingPreview.active = true
+}
+
+export function finishEndingPreview(): void {
+  endingPreview.active = false
+  previewSlot = null
+}
+
 export function mySlot(): ReturnType<typeof PlayerSlot.getOrNull> {
+  if (endingPreview.active) return previewSlot
   const address = myAddress()
   let only: ReturnType<typeof PlayerSlot.getOrNull> = null
   let count = 0
@@ -87,6 +111,8 @@ export function onPhaseStart(cb: (phase: string) => void): void {
 }
 
 export function phaseClockSystem(dt: number): void {
+  // The global round continues for survivors; a dead player's clock stops.
+  if (mySlot()?.dead) return
   const state = gameState()
   const key = `${state.phase}:${state.turn}`
   if (key !== phaseKey) {
@@ -110,4 +136,38 @@ export function myTargetInDanger(): boolean {
     }
   }
   return false
+}
+
+export function myTargetInBlast(): boolean {
+  const cell = myTarget()
+  if (!cell) return false
+  for (const [_e, mine] of engine.getEntitiesWith(Mine)) {
+    if (!mine.active || mine.exploded || mine.detonateTurn > gameState().turn + 1) continue
+    if (blastCells(mine.cellI, mine.cellJ).some(([i, j]) => i === cell.i && j === cell.j)) return true
+  }
+  return false
+}
+
+// With LANES_BLOCK_PATHS, sharks and their lanes are walls for my path.
+export function isWall(i: number, j: number): boolean {
+  if (!LANES_BLOCK_PATHS) return false
+  for (const [_e, s] of engine.getEntitiesWith(Shark)) {
+    if (!s.active) continue
+    for (const [ci, cj] of sharkCells(s)) if (ci === i && cj === j) return true
+  }
+  return false
+}
+
+// Sharks hunting me right now (my pack), and how close the nearest one is.
+export function myHunters(): { count: number; nearest: number } {
+  const slot = mySlot()
+  let count = 0
+  let nearest = Infinity
+  if (!slot || slot.dead) return { count, nearest }
+  for (const [_e, s] of engine.getEntitiesWith(Shark)) {
+    if (!s.active || s.role <= 0 || s.target !== slot.address) continue
+    count++
+    nearest = Math.min(nearest, Math.max(Math.abs(s.cellI - slot.cellI), Math.abs(s.cellJ - slot.cellJ)))
+  }
+  return { count, nearest }
 }

@@ -1,5 +1,7 @@
 import {
   Animator,
+  Billboard,
+  BillboardMode,
   Entity,
   GltfContainer,
   InputAction,
@@ -16,7 +18,7 @@ import {
 import { Color3, Color4, Quaternion, Vector3 } from '@dcl/sdk/math'
 import { movePlayerTo } from '~system/RestrictedActions'
 
-import { Pickup, Shark } from '../shared/components'
+import { Chum, Pickup, Shark } from '../shared/components'
 import {
   BOARD_SIZE,
   CELL,
@@ -29,7 +31,9 @@ import {
 } from '../shared/config'
 import { initAudio, sfx, SFX } from './audio'
 import { initAvatars, myAvatarPosition } from './avatars'
+import { cinema, initCinematic } from './cinematic'
 import { inputSystem_ } from './input'
+import { cameraShake, mineVisualSystem } from './mines'
 import { gameState, myCell, myPlanCells, mySlot, phaseClockSystem } from './state'
 import { createBoardEdge, createGridWindow, createHarbor, createWaterFloor, gridWindowSystem, waterScrollSystem } from './water'
 
@@ -37,6 +41,7 @@ import { createBoardEdge, createGridWindow, createHarbor, createWaterFloor, grid
 // config, avatar follow, and shark/pickup visuals driven by synced state.
 
 let camEntity: Entity
+let previousShake = { x: 0, z: 0 }
 
 // x < 0 frames the avatar right of center, clear of the d-pad (bottom-left).
 const CAM_OFFSET = { x: -4, y: 16, z: -9 }
@@ -46,20 +51,25 @@ const SIGHT_CELLS = VIEW_CELLS + 3 // sharks/pickups beyond this stay hidden
 // Camera trails my drawn avatar (the real one is hidden underwater), only
 // past a deadzone so movement reads on screen.
 function cameraFollowSystem(dt: number): void {
+  if (cinema.active) return
   if (!camEntity) return
   const target = myAvatarPosition() ?? Transform.getOrNull(engine.PlayerEntity)?.position
   if (!target) return
   const camT = Transform.getMutable(camEntity)
+  camT.position.x -= previousShake.x
+  camT.position.z -= previousShake.z
   const anchorX = camT.position.x - CAM_OFFSET.x
   const anchorZ = camT.position.z - CAM_OFFSET.z
   const dx = target.x - anchorX
   const dz = target.z - anchorZ
   const dist = Math.sqrt(dx * dx + dz * dz)
-  if (dist <= CAM_DEADZONE) return
-  const pull = (dist - CAM_DEADZONE) / dist
+  const pull = dist > CAM_DEADZONE ? (dist - CAM_DEADZONE) / dist : 0
   const k = Math.min(1, dt * 6)
   camT.position.x += dx * pull * k
   camT.position.z += dz * pull * k
+  previousShake = cameraShake()
+  camT.position.x += previousShake.x
+  camT.position.z += previousShake.z
 }
 
 export function initClient() {
@@ -107,6 +117,7 @@ export function initClient() {
   createMyCellMarker()
 
   initAudio()
+  initCinematic(cam)
   initAvatars()
 
   engine.addSystem(phaseClockSystem)
@@ -118,9 +129,11 @@ export function initClient() {
   })
   engine.addSystem(avatarFollowSystem)
   engine.addSystem(myCellMarkerSystem)
+  engine.addSystem(mineVisualSystem)
   engine.addSystem(cameraFollowSystem)
   engine.addSystem(sharkVisualSystem)
   engine.addSystem(pickupVisualSystem)
+  engine.addSystem(chumVisualSystem)
 }
 
 // --- avatar follow: hop to my cell via movePlayerTo (camera + voice follow) ---
@@ -140,7 +153,7 @@ function avatarFollowSystem(_dt: number): void {
   lastJ = cell.j
   movePlayerTo({
     newRelativePosition: Vector3.create(cellCenter(cell.i), 0, cellCenter(cell.j)),
-    duration: jump ? undefined : 0.4 // client-side interpolated glide
+    duration: jump ? undefined : SHARKS_TIME * 0.8 // client-side interpolated glide
   }).catch(() => {})
 }
 
@@ -191,7 +204,7 @@ function myCellMarkerSystem(): void {
   t.scale = Vector3.One()
 
   // Plan frames, only while picking (myPlanCells is empty otherwise).
-  const cells = slot.stunned ? [] : myPlanCells()
+  const cells = myPlanCells()
   const pulse = 0.92 + Math.sin(animClock * 10) * 0.06
   cells.slice(0, MAX_STEP_MARKERS).forEach(([i, j], n) => {
     const last = n === cells.length - 1
@@ -216,6 +229,8 @@ interface SharkVisual {
   fin: Entity // small GLB, deep: only the dorsal fin out, circling its cell
   attacker: Entity // big GLB, hidden until the lunge: grows and bites
   lane: Entity
+  mark: Entity // my hunters only: fang tip (Bruce) or crossbar (the Tiger) at the lane's end
+  barrels: Entity[] // yellow barrels riding a harpooned fin
   phase: string
   clock: number
   rise: number // 0 submerged → 1 surfaced
@@ -226,14 +241,28 @@ const visuals = new Map<Entity, SharkVisual>()
 const HIDDEN = Vector3.Zero()
 const FIN_SCALE = Vector3.create(1.4, 1.4, 1.4) // fin GLB is ~1m tall
 
-function laneMaterial(e: Entity, hunting: boolean) {
+// Lane colour answers "can this hurt me?" for whoever is looking:
+// red = a shark hunting me, orange = any lane I could swim into this turn,
+// grey-blue = out of my reach. A lane that can bite me is never dimmed.
+type LaneTone = 'mine' | 'near' | 'far'
+const LANE_COLORS: Record<LaneTone, { albedo: Color4; emissive: Color3 }> = {
+  mine: { albedo: Color4.create(1, 0.08, 0.05, 0.55), emissive: Color3.create(0.95, 0.05, 0.02) },
+  near: { albedo: Color4.create(1, 0.45, 0.1, 0.42), emissive: Color3.create(0.8, 0.35, 0.05) },
+  far: { albedo: Color4.create(0.45, 0.6, 0.75, 0.25), emissive: Color3.create(0.15, 0.25, 0.35) }
+}
+
+function laneMaterial(e: Entity, tone: LaneTone) {
   Material.setPbrMaterial(e, {
-    albedoColor: hunting ? Color4.create(1, 0.08, 0.05, 0.5) : Color4.create(1, 0.45, 0.1, 0.4),
-    emissiveColor: hunting ? Color3.create(0.9, 0.05, 0.02) : Color3.create(0.8, 0.35, 0.05),
+    albedoColor: LANE_COLORS[tone].albedo,
+    emissiveColor: LANE_COLORS[tone].emissive,
     emissiveIntensity: 0.9,
     transparencyMode: MaterialTransparencyMode.MTM_ALPHA_BLEND,
     castShadows: false
   })
+}
+
+function solid(e: Entity, color: Color4, emissive: Color3, intensity = 1) {
+  Material.setPbrMaterial(e, { albedoColor: color, emissiveColor: emissive, emissiveIntensity: intensity, castShadows: false })
 }
 
 function ensureVisual(shark: Entity): SharkVisual {
@@ -253,10 +282,24 @@ function ensureVisual(shark: Entity): SharkVisual {
 
     const lane = engine.addEntity()
     MeshRenderer.setBox(lane)
-    laneMaterial(lane, true)
+    laneMaterial(lane, 'near')
     Transform.create(lane, { scale: HIDDEN })
 
-    v = { fin, attacker, lane, phase: '', clock: 0, rise: 0, active: false }
+    const mark = engine.addEntity()
+    MeshRenderer.setBox(mark)
+    solid(mark, Color4.create(1, 0.1, 0.06, 1), Color3.create(1, 0.08, 0.04), 1.6)
+    Transform.create(mark, { scale: HIDDEN })
+
+    const barrels: Entity[] = []
+    for (let n = 0; n < 2; n++) {
+      const barrel = engine.addEntity()
+      MeshRenderer.setCylinder(barrel)
+      solid(barrel, Color4.create(1, 0.8, 0.08, 1), Color3.create(0.6, 0.45, 0), 0.6)
+      Transform.create(barrel, { parent: fin, scale: HIDDEN })
+      barrels.push(barrel)
+    }
+
+    v = { fin, attacker, lane, mark, barrels, phase: '', clock: 0, rise: 0, active: false }
     visuals.set(shark, v)
   }
   return v
@@ -266,7 +309,7 @@ function yaw(dirX: number, dirZ: number): number {
   return (Math.atan2(dirX, dirZ) * 180) / Math.PI
 }
 
-const laneHunting = new Map<Entity, boolean>()
+const laneTones = new Map<Entity, LaneTone>()
 // debug probe: how many fins are actually visible and where
 export function finDebug(): string {
   let total = 0
@@ -300,6 +343,7 @@ function sharkVisualSystem(dt: number): void {
         Transform.getMutable(v.fin).scale = HIDDEN
         Transform.getMutable(v.attacker).scale = HIDDEN
         Transform.getMutable(v.lane).scale = HIDDEN
+        Transform.getMutable(v.mark).scale = HIDDEN
       }
       v.active = false
       v.rise = 0
@@ -317,9 +361,20 @@ function sharkVisualSystem(dt: number): void {
       Transform.createOrReplace(v.attacker, { scale: HIDDEN })
     }
     if (v.phase !== shark.phase) {
+      // The dash ended at the lane's far cell: the fin is there now, not
+      // swimming back from where the lunge started.
+      if (v.phase === 'lunge') finT.position = Vector3.create(x, finT.position.y, z)
       v.phase = shark.phase
       v.clock = 0
     }
+    // My pack swims bigger: Bruce the biggest.
+    const mineHunter = me !== null && shark.role > 0 && shark.target === me.address
+    const finScale = !mineHunter ? FIN_SCALE : Vector3.scale(FIN_SCALE, shark.role === 1 ? 1.6 : 1.3)
+    const tagged = shark.tagUntilTurn > gameState().turn
+    v.barrels.forEach((b, n) => {
+      Transform.getMutable(b).scale = n < shark.barrels ? Vector3.create(0.32, 0.22, 0.32) : HIDDEN
+      Transform.getMutable(b).position = Vector3.create(-0.5 - n * 0.4, tagged ? 0.55 : 0.4, n === 0 ? 0.35 : -0.35)
+    })
     v.clock += dt
     v.rise = Math.min(1, v.rise + dt / 0.6)
     // Cruise: fin base at the surface line (GLB base is y=0).
@@ -340,13 +395,14 @@ function sharkVisualSystem(dt: number): void {
         scale: Vector3.create(0.7 + k * 0.8, 0.7 + k * 0.8, 0.7 + k * 0.8) // grows through the dash
       })
       Transform.getMutable(v.lane).scale = HIDDEN
+      Transform.getMutable(v.mark).scale = HIDDEN
       continue
     }
 
     // Plan: if the cell moved (after a lunge), swim straight to it; once
     // there, idle in circles with the fin trailing the motion.
     Transform.getMutable(v.attacker).scale = HIDDEN
-    if (finT.scale.x === 0) finT.scale = FIN_SCALE // restore after a lunge
+    if (finT.scale.x !== finScale.x) finT.scale = finScale // restore after a lunge / role change
     const swimSpeed = 4 // m/s
     const toCellX = x - finT.position.x
     const toCellZ = z - finT.position.z
@@ -372,9 +428,10 @@ function sharkVisualSystem(dt: number): void {
     }
 
     if (shark.len > 0 && v.rise >= 1) {
-      if (laneHunting.get(entity) !== shark.hunting) {
-        laneHunting.set(entity, shark.hunting)
-        laneMaterial(v.lane, shark.hunting)
+      const tone = laneToneFor(shark, me, mineHunter)
+      if (laneTones.get(entity) !== tone) {
+        laneTones.set(entity, tone)
+        laneMaterial(v.lane, tone)
       }
       const cells = shark.len + 1
       const mid = shark.len / 2
@@ -389,9 +446,71 @@ function sharkVisualSystem(dt: number): void {
           ? Vector3.create(cells * CELL - 0.4, 0.06, CELL - 0.4)
           : Vector3.create(CELL - 0.4, 0.06, cells * CELL - 0.4)
       })
+      // Role by shape at the lane's end: Bruce's fang points along the
+      // lane, the Tiger's crossbar cuts across it.
+      if (mineHunter) {
+        const endX = cellCenter(shark.cellI + shark.dirX * shark.len)
+        const endZ = cellCenter(shark.cellJ + shark.dirZ * shark.len)
+        const along = shark.role === 1
+        Transform.createOrReplace(v.mark, {
+          position: Vector3.create(endX + shark.dirX * (along ? 1.2 : 1.6), WATER_Y + 0.14, endZ + shark.dirZ * (along ? 1.2 : 1.6)),
+          rotation: Quaternion.fromEulerDegrees(0, yaw(shark.dirX, shark.dirZ) + (along ? 45 : 0), 0),
+          scale: along ? Vector3.create(1.3, 0.1, 1.3) : Vector3.create(CELL - 0.2, 0.1, 0.35)
+        })
+      } else {
+        Transform.getMutable(v.mark).scale = HIDDEN
+      }
     } else {
       Transform.getMutable(v.lane).scale = HIDDEN
+      Transform.getMutable(v.mark).scale = HIDDEN
     }
+  }
+}
+
+function laneToneFor(
+  shark: { cellI: number; cellJ: number; dirX: number; dirZ: number; len: number },
+  me: ReturnType<typeof mySlot>,
+  mineHunter: boolean
+): LaneTone {
+  if (mineHunter) return 'mine'
+  if (!me || me.dead) return 'near'
+  for (let k = 0; k <= shark.len; k++) {
+    const i = shark.cellI + shark.dirX * k
+    const j = shark.cellJ + shark.dirZ * k
+    if (Math.abs(i - me.cellI) + Math.abs(j - me.cellJ) <= me.maxSteps && !inHarbor(i, j)) return 'near'
+  }
+  return 'far'
+}
+
+// --- chum: a pulsing red slick where it was dropped ---
+const chumVisuals = new Map<Entity, Entity>()
+
+function chumVisualSystem(): void {
+  const me = mySlot()
+  for (const [entity, chum] of engine.getEntitiesWith(Chum)) {
+    let visual = chumVisuals.get(entity)
+    if (!visual) {
+      visual = engine.addEntity()
+      MeshRenderer.setCylinder(visual)
+      Material.setPbrMaterial(visual, {
+        albedoColor: Color4.create(0.75, 0.04, 0.04, 0.55),
+        emissiveColor: Color3.create(0.5, 0.02, 0.02),
+        emissiveIntensity: 0.8,
+        transparencyMode: MaterialTransparencyMode.MTM_ALPHA_BLEND,
+        castShadows: false
+      })
+      Transform.create(visual, { scale: HIDDEN })
+      chumVisuals.set(entity, visual)
+    }
+    const near = me !== null && Math.max(Math.abs(chum.cellI - me.cellI), Math.abs(chum.cellJ - me.cellJ)) <= SIGHT_CELLS
+    const t = Transform.getMutable(visual)
+    if (!chum.active || !near) {
+      if (t.scale.x !== 0) t.scale = HIDDEN
+      continue
+    }
+    const pulse = 1 + Math.sin(animClock * 4) * 0.08
+    t.position = Vector3.create(cellCenter(chum.cellI), WATER_Y + 0.05, cellCenter(chum.cellJ))
+    t.scale = Vector3.create(CELL * 1.3 * pulse, 0.04, CELL * 1.3 * pulse)
   }
 }
 
@@ -400,7 +519,15 @@ const pickupVisuals = new Map<Entity, { e: Entity; kind: string }>()
 
 function pickupVisual(kind: string): Entity {
   const visual = engine.addEntity()
-  if (kind === 'coin') {
+  if (kind === 'barrel') {
+    MeshRenderer.setCylinder(visual)
+    Material.setPbrMaterial(visual, {
+      albedoColor: Color4.create(1, 0.8, 0.08, 1),
+      emissiveColor: Color3.create(0.6, 0.45, 0),
+      emissiveIntensity: 0.5,
+      roughness: 0.5
+    })
+  } else if (kind === 'coin') {
     MeshRenderer.setCylinder(visual)
     Material.setPbrMaterial(visual, {
       albedoColor: Color4.fromHexString('#FFD700FF'),
@@ -410,11 +537,12 @@ function pickupVisual(kind: string): Entity {
       roughness: 0.3
     })
   } else {
-    MeshRenderer.setSphere(visual)
-    Material.setPbrMaterial(visual, {
-      albedoColor: Color4.fromHexString('#FF4444FF'),
-      emissiveColor: Color3.fromHexString('#AA0000'),
-      emissiveIntensity: 0.6
+    MeshRenderer.setPlane(visual)
+    Billboard.create(visual, { billboardMode: BillboardMode.BM_ALL })
+    const image = kind === 'mine' ? 'sea-mine' : kind === 'boost' ? 'swim-boost' : kind === 'chum' ? 'bait-fish' : 'life-jacket'
+    Material.setBasicMaterial(visual, {
+      texture: Material.Texture.Common({ src: `assets/images/items/${image}.png` }),
+      castShadows: false
     })
   }
   Transform.create(visual, { scale: HIDDEN })
@@ -444,8 +572,12 @@ function pickupVisualSystem(): void {
     if (pickup.kind === 'coin') {
       t.rotation = spin
       t.scale = Vector3.create(1.1, 0.15, 1.1)
+    } else if (pickup.kind === 'barrel') {
+      t.rotation = Quaternion.fromEulerDegrees(0, (animClock * 40) % 360, Math.sin(animClock * 2) * 8)
+      t.scale = Vector3.create(1, 1.3, 1)
     } else {
-      t.scale = Vector3.create(1, 1, 1)
+      t.position.y = WATER_Y + 1.1 + Math.sin(animClock * 3 + entity) * 0.15
+      t.scale = Vector3.create(2.2, 2.2, 2.2)
     }
   }
 }

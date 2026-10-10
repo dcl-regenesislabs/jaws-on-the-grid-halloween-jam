@@ -1,0 +1,20 @@
+{
+  "task_id": "01a1265e-17d4-76e7-b25c-f945c7016938",
+  "task_type": "image-to-3d",
+  "status": "SUCCEEDED",
+  "consumed_credits": 30,
+  "local_model": "shark-meshy-v3.glb",
+  "review_scene": "shark-meshy-v3-review.blend",
+  "actual_triangles": 8306,
+  "materials": 1,
+  "animations": 0,
+  "rigged": false,
+  "blender_native_dimensions": [1.077129, 1.902603, 0.876036],
+  "approved_credits": 30,
+  "ai_model": "meshy-7",
+  "source": "shark-meshy-reference-v3.png",
+  "target_formats": ["glb"],
+  "target_polycount": 8000,
+  "texture_resolution": "2k",
+  "enable_pbr": true
+}

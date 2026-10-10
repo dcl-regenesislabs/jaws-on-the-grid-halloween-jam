@@ -1,16 +1,37 @@
 import { InputAction, PointerEventType, engine, inputSystem } from '@dcl/sdk/ecs'
 
-import { ATTACK_COOLDOWN, PLAYERS_TIME, STEP_DIRS, inBoard, pathCells } from '../shared/config'
+import { BARREL_RANGE, MAX_MINES, PLAYERS_TIME, STEP_DIRS, inBoard, inHarbor, pathCells } from '../shared/config'
+import { Chum, Mine, Shark } from '../shared/components'
 import { room } from '../shared/messages'
-import { gameState, myMaxSteps, myPlan, mySlot, pendingPlan, phaseElapsed } from './state'
+import { gameState, isWall, myMaxSteps, myPlan, mySlot, pendingPlan, phaseElapsed } from './state'
 
 // Input. During the players' turn you plan a path of up to maxSteps cells:
 // each arrow adds a step, the opposite of the last step undoes it, CANCEL
-// clears it. Execution moves everyone at once. Touch d-pad/slap/cancel come
-// from ui.tsx; desktop keys are an optional extra (WASD/arrows, E slap, F cancel).
+// clears it. Sharks and their lanes are walls (LANES_BLOCK_PATHS): arrows
+// into them are disabled. Execution moves everyone at once. Touch d-pad,
+// gear buttons and cancel come from ui.tsx; desktop keys are an optional
+// extra (WASD/arrows, F cancel).
 
 let clock = 0
-let lastSlapAt = -999
+let lastGearAt = -999
+let lastMineAt = -999
+
+export function canPlantMine(): boolean {
+  const slot = mySlot()
+  if (!slot || !canPlanNow() || slot.mines <= 0 || inHarbor(slot.cellI, slot.cellJ) || clock - lastMineAt < 0.4) return false
+  let occupied = 0
+  for (const [_e, mine] of engine.getEntitiesWith(Mine)) {
+    if (mine.active) occupied++
+    if (mine.active && !mine.exploded && mine.cellI === slot.cellI && mine.cellJ === slot.cellJ) return false
+  }
+  return occupied < MAX_MINES
+}
+
+export function requestMine(): void {
+  if (!canPlantMine()) return
+  lastMineAt = clock
+  room.send('plantMine', {})
+}
 
 // Plans this close to the end of the turn would reach the server too late.
 const LATE_TAP = 0.15
@@ -30,7 +51,6 @@ export function canPlanNow(): boolean {
   return (
     !!slot &&
     !slot.dead &&
-    !slot.stunned &&
     gameState().phase === 'players' &&
     phaseElapsed() < PLAYERS_TIME - LATE_TAP
   )
@@ -52,7 +72,7 @@ export function canStep(code: number): boolean {
   const slot = mySlot()!
   const cells = pathCells(slot.cellI, slot.cellJ, [...plan, code])
   const [i, j] = cells[cells.length - 1]
-  return inBoard(i, j)
+  return inBoard(i, j) && !isWall(i, j)
 }
 
 export function requestStep(code: number): void {
@@ -67,19 +87,39 @@ export function requestCancel(): void {
   sendPlan([])
 }
 
-export function slapCooldownLeft(): number {
-  return Math.max(0, ATTACK_COOLDOWN - (clock - lastSlapAt))
-}
-
-export function canSlapNow(): boolean {
+// Yellow barrel: harpoons the nearest shark within BARREL_RANGE.
+export function sharkInHarpoonRange(): boolean {
   const slot = mySlot()
-  return !!slot && !slot.dead && !slot.stunned && gameState().phase === 'players' && slapCooldownLeft() <= 0
+  if (!slot) return false
+  for (const [_e, s] of engine.getEntitiesWith(Shark)) {
+    if (s.active && Math.max(Math.abs(s.cellI - slot.cellI), Math.abs(s.cellJ - slot.cellJ)) <= BARREL_RANGE) return true
+  }
+  return false
 }
 
-export function requestSlap(): boolean {
-  if (!canSlapNow()) return false
-  lastSlapAt = clock
-  room.send('attack', {})
+export function canHarpoon(): boolean {
+  const slot = mySlot()
+  return !!slot && canPlanNow() && slot.barrels > 0 && !inHarbor(slot.cellI, slot.cellJ) && clock - lastGearAt > 0.4 && sharkInHarpoonRange()
+}
+
+export function requestHarpoon(): boolean {
+  if (!canHarpoon()) return false
+  lastGearAt = clock
+  room.send('harpoon', {})
+  return true
+}
+
+export function canDropChum(): boolean {
+  const slot = mySlot()
+  if (!slot || !canPlanNow() || slot.chum <= 0 || inHarbor(slot.cellI, slot.cellJ) || clock - lastGearAt < 0.4) return false
+  for (const [_e, c] of engine.getEntitiesWith(Chum)) if (!c.active) return true
+  return false
+}
+
+export function requestChum(): boolean {
+  if (!canDropChum()) return false
+  lastGearAt = clock
+  room.send('dropChum', {})
   return true
 }
 
@@ -97,15 +137,14 @@ export function inputSystem_(dt: number): void {
       break
     }
   }
-  if (inputSystem.isTriggered(InputAction.IA_PRIMARY, PointerEventType.PET_DOWN)) requestSlap()
   if (inputSystem.isTriggered(InputAction.IA_SECONDARY, PointerEventType.PET_DOWN)) requestCancel()
 
   // Reconcile: the server echoed my plan → its copy takes over; no echo in
-  // time (rejected), turn over, stunned or dead → drop the local one.
+  // time (rejected), turn over or dead → drop the local one.
   if (!pendingPlan.active) return
   const slot = mySlot()
   const echoed = !!slot && samePath(Array.from(slot.path), pendingPlan.steps)
-  if (!slot || slot.dead || slot.stunned || echoed || gameState().phase !== 'players' || clock - pendingPlan.at > 1.2) {
+  if (!slot || slot.dead || echoed || gameState().phase !== 'players' || clock - pendingPlan.at > 1.2) {
     pendingPlan.active = false
   }
 }

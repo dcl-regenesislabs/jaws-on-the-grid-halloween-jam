@@ -1,0 +1,6 @@
+*.log
+*.avi
+*.mp4
+!mine-proof.mp4
+*.jsonl
+*.png

@@ -2,8 +2,9 @@ import { AvatarModifierArea, AvatarModifierType, AvatarShape, Entity, Transform,
 import { Quaternion, Vector3 } from '@dcl/sdk/math'
 
 import { PlayerSlot } from '../shared/components'
-import { AVATAR_Y, BOARD_SIZE, CELL, RAFT_Y, cellCenter, inHarbor, pathCells } from '../shared/config'
+import { AVATAR_Y, BOARD_SIZE, CELL, RAFT_Y, SHARKS_TIME, cellCenter, inHarbor, pathCells } from '../shared/config'
 import { myCell, mySlot } from './state'
+import { cinema, CINEMA_SURFACE } from './cinematic'
 
 // Every player is drawn as an AvatarShape copy of their real look (profile
 // synced in their slot), gliding cell to cell: swim emote while changing
@@ -15,9 +16,22 @@ import { myCell, mySlot } from './state'
 
 const SWIM = 'assets/animations/swim_emote.glb'
 const FLOAT = 'assets/animations/float_emote.glb'
-const GLIDE_TIME = 0.45 // s for a whole planned path (fits the 0.5 s execution)
-const SWIM_HOLD = 0.7 // s of swim before settling into float
-const FLOAT_LOOP = 1.6 // clip length; re-triggered so it keeps treading
+const GLIDE_TIME = SHARKS_TIME * 0.9 // s for a whole planned path (fits the execution)
+// Scene emotes on an AvatarShape never loop, so the float clip (1.6 s) is
+// re-triggered a little early: waiting for its end drops the client to idle
+// for a few frames. Both clips start and end on the same pose.
+const FLOAT_LOOP = 1.5
+// swim_emote.glb is 1.2 s. Repeat before its end, never at the float interval.
+const SWIM_LOOP = 1.1
+// The Godot client ignores an emote request less than 0.5 s after the last
+// one, and any request while an emote is still loading. Triggers are queued
+// until the gap has passed instead of being fired and lost.
+const EMOTE_GAP = 0.6
+// At spawn both clips are triggered once so they are loaded before the first
+// swim; the avatar waits under the opaque water (inside the view, so its
+// animation still runs) until then.
+const PRELOAD_HIDE = 2.4
+const PRELOAD_Y = 0
 // The swim clip lays the body flat with the hips ~0.70 m above the avatar's
 // origin (float keeps them ~0.94 m up, upright). At neck depth that sinks a
 // swimmer ~0.5 m under the opaque water, so lift it to the surface while
@@ -39,8 +53,11 @@ interface Swimmer {
   t: number // seconds since the last cell change
   lift: number // current extra height (SWIM_LIFT while swimming)
   yaw: number
-  emote: string
-  emoteAt: number
+  emote: string // what it should be doing
+  pending: string // emote waiting for the client's trigger gap
+  lastTrigger: number // clock of the last trigger actually sent
+  revealAt: number // clock when the spawn preload ends
+  preloadFloat: boolean // float clip still to be preloaded
   stamp: number
 }
 
@@ -95,13 +112,18 @@ function point(i: number, j: number) {
   return { x: cellCenter(i), y: heightAt(i, j), z: cellCenter(j) }
 }
 
-function play(s: Swimmer, emote: string): void {
-  s.emote = emote
-  s.emoteAt = clock
+function trigger(s: Swimmer, emote: string): void {
+  s.lastTrigger = clock
   s.stamp += 1
   const shape = AvatarShape.getMutable(s.entity)
   shape.expressionTriggerId = emote
   shape.expressionTriggerTimestamp = s.stamp
+}
+
+// Ask for an emote; it goes out as soon as the client will accept it.
+function play(s: Swimmer, emote: string): void {
+  s.emote = emote
+  s.pending = emote
 }
 
 function swimmerSystem(dt: number): void {
@@ -139,9 +161,32 @@ function swimmerSystem(dt: number): void {
         eyeColor: slot.eyesColor
       })
       Transform.create(entity, { parent: mover })
-      s = { mover, entity, profileKey, points: [point(cell.i, cell.j)], toX: x, toZ: z, t: GLIDE_TIME, lift: 0, yaw: 0, emote: '', emoteAt: 0, stamp: 0 }
+      s = {
+        mover, entity, profileKey, points: [point(cell.i, cell.j)], toX: x, toZ: z, t: GLIDE_TIME, lift: 0, yaw: 0,
+        emote: '', pending: '', lastTrigger: -999, revealAt: clock + PRELOAD_HIDE, preloadFloat: true, stamp: 0
+      }
       swimmers.set(slotEntity, s)
-      if (!onRaft) play(s, FLOAT)
+      trigger(s, SWIM) // preload; float follows once the client accepts it
+    }
+    const preloading = clock < s.revealAt
+    if (preloading && s.preloadFloat && clock - s.lastTrigger >= EMOTE_GAP) {
+      s.preloadFloat = false
+      trigger(s, FLOAT)
+    }
+
+    if (cinema.active) {
+      const visible = isMe && !cinema.swallowed && cinema.elapsed >= 0.55
+      Transform.createOrReplace(s.mover, {
+        position: Vector3.create(cinema.x, CINEMA_SURFACE - 1.05 + Math.sin(clock * 2) * 0.035, cinema.z),
+        rotation: Quaternion.fromEulerDegrees(0, 90, 0),
+        scale: visible ? Vector3.create(1.5, 1.5, 1.5) : Vector3.Zero()
+      })
+      if (isMe && (s.emote !== SWIM || clock - s.lastTrigger >= SWIM_LOOP) && clock - s.lastTrigger >= EMOTE_GAP) {
+        s.emote = SWIM
+        s.pending = ''
+        trigger(s, SWIM)
+      }
+      continue
     }
 
     // New cell: swim the executed path (still in slot.path) corner by
@@ -179,18 +224,27 @@ function swimmerSystem(dt: number): void {
     const liftTarget = s.emote === SWIM ? SWIM_LIFT : 0
     s.lift += (liftTarget - s.lift) * Math.min(1, dt / LIFT_EASE)
     Transform.createOrReplace(s.mover, {
-      position: Vector3.create(a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f + s.lift, a.z + (b.z - a.z) * f),
+      position: Vector3.create(a.x + (b.x - a.x) * f, preloading ? PRELOAD_Y : a.y + (b.y - a.y) * f + s.lift, a.z + (b.z - a.z) * f),
       rotation: Quaternion.fromEulerDegrees(0, s.yaw, 0),
       scale: slot.dead ? Vector3.Zero() : Vector3.One()
     })
 
-    // Settle into float after the stroke; keep treading on a loop. On the
-    // raft just stand (a running clip ends on its own).
+    // Settle into float when the glide ends; keep treading on a loop. On the
+    // raft just stand (a running clip ends on its own). Nothing is asked of
+    // the client while the spawn preload is running.
+    if (preloading) continue
     const done = k >= 1
-    if (onRaft && done) s.emote = ''
-    else if (s.emote === SWIM && clock - s.emoteAt > SWIM_HOLD && done) play(s, FLOAT)
-    else if (s.emote === FLOAT && clock - s.emoteAt > FLOAT_LOOP) play(s, FLOAT)
+    if (onRaft && done) {
+      s.emote = ''
+      s.pending = ''
+    } else if (s.emote === SWIM && done) play(s, FLOAT)
+    else if (s.emote === FLOAT && clock - s.lastTrigger > FLOAT_LOOP) play(s, FLOAT)
     else if (s.emote === '' && !onRaft && done) play(s, FLOAT)
+
+    if (s.pending && clock - s.lastTrigger >= EMOTE_GAP) {
+      trigger(s, s.pending)
+      s.pending = ''
+    }
   }
 
   // Players who left.
