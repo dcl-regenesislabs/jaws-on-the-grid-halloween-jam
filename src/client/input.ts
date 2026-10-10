@@ -1,16 +1,15 @@
 import { InputAction, PointerEventType, engine, inputSystem } from '@dcl/sdk/ecs'
 
-import { ATTACK_COOLDOWN, PLAYERS_TIME, STEP_DIRS, inBoard, pathCells } from '../shared/config'
+import { PLAYERS_TIME, STEP_DIRS, inBoard, pathCells } from '../shared/config'
 import { room } from '../shared/messages'
 import { gameState, myMaxSteps, myPlan, mySlot, pendingPlan, phaseElapsed } from './state'
 
 // Input. During the players' turn you plan a path of up to maxSteps cells:
 // each arrow adds a step, the opposite of the last step undoes it, CANCEL
-// clears it. Execution moves everyone at once. Touch d-pad/slap/cancel come
-// from ui.tsx; desktop keys are an optional extra (WASD/arrows, E slap, F cancel).
+// clears it. Execution moves everyone at once. Touch d-pad/cancel come
+// from ui.tsx; desktop keys are an optional extra (WASD/arrows, F cancel).
 
 let clock = 0
-let lastSlapAt = -999
 
 // Plans this close to the end of the turn would reach the server too late.
 const LATE_TAP = 0.15
@@ -67,22 +66,6 @@ export function requestCancel(): void {
   sendPlan([])
 }
 
-export function slapCooldownLeft(): number {
-  return Math.max(0, ATTACK_COOLDOWN - (clock - lastSlapAt))
-}
-
-export function canSlapNow(): boolean {
-  const slot = mySlot()
-  return !!slot && !slot.dead && !slot.stunned && gameState().phase === 'players' && slapCooldownLeft() <= 0
-}
-
-export function requestSlap(): boolean {
-  if (!canSlapNow()) return false
-  lastSlapAt = clock
-  room.send('attack', {})
-  return true
-}
-
 function samePath(a: readonly number[], b: readonly number[]): boolean {
   return a.length === b.length && a.every((v, k) => v === b[k])
 }
@@ -97,7 +80,6 @@ export function inputSystem_(dt: number): void {
       break
     }
   }
-  if (inputSystem.isTriggered(InputAction.IA_PRIMARY, PointerEventType.PET_DOWN)) requestSlap()
   if (inputSystem.isTriggered(InputAction.IA_SECONDARY, PointerEventType.PET_DOWN)) requestCancel()
 
   // Reconcile: the server echoed my plan → its copy takes over; no echo in

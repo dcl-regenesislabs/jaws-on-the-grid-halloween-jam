@@ -73,7 +73,6 @@ export const PICKUPS_NEAR = 5
 export const COIN_POINTS = 10 // × (1 + tier)
 export const SURVIVAL_BONUS = 25 // life buoy saves you
 export const LIFE_DROP_CHANCE = 0.12
-export const ATTACK_COOLDOWN = 4 // seconds
 
 export function cellCenter(i: number): number {
   return (i + 0.5) * CELL

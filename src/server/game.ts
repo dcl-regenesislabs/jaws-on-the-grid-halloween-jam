@@ -6,7 +6,6 @@ import { Storage } from '@dcl/sdk/server'
 import { GameState, Pickup, PlayerSlot, Shark } from '../shared/components'
 import { room } from '../shared/messages'
 import {
-  ATTACK_COOLDOWN,
   BASE_STEPS,
   HARBOR_MAX,
   HARBOR_MIN,
@@ -49,7 +48,6 @@ let turn = 0
 let now = 0 // server clock, seconds since start
 let pingTimer = 0
 
-const lastAttackAt = new Map<string, number>()
 const sharkPool: Entity[] = []
 const pickupPool: Entity[] = []
 
@@ -155,27 +153,6 @@ export function initServer() {
     // Every cell on the way must be on the board (the net at the world's edge).
     if (pathCells(found.slot.cellI, found.slot.cellJ, steps).some(([i, j]) => !inBoard(i, j))) return
     found.slot.path = steps
-  })
-
-  room.onMessage('attack', (_data, context) => {
-    // Only on the players' turn: a stun cleared 0.5 s later would be a no-op.
-    if (phase !== 'players') return
-    const attacker = senderSlot(context)
-    if (!attacker || attacker.slot.dead || attacker.slot.stunned) return
-    const key = attacker.slot.address
-    const last = lastAttackAt.get(key) ?? -999
-    if (now - last < ATTACK_COOLDOWN) return
-    lastAttackAt.set(key, now)
-    for (const [entity, slot] of engine.getEntitiesWith(PlayerSlot)) {
-      if (entity === attacker.entity || slot.dead) continue
-      if (chebyshev(slot.cellI, slot.cellJ, attacker.slot.cellI, attacker.slot.cellJ) <= 1) {
-        // Frozen until the next players' turn: their pick is dropped, so
-        // they sit where they are — a sitting duck on a lane.
-        const mut = PlayerSlot.getMutable(entity)
-        mut.stunned = true
-        mut.path = []
-      }
-    }
   })
 
   room.onMessage('respawn', (_data, context) => {

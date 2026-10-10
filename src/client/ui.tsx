@@ -5,13 +5,13 @@ import ReactEcs, { Label, ReactEcsRenderer, UiEntity } from '@dcl/sdk/react-ecs'
 import { GameState, Pickup, PlayerSlot } from '../shared/components'
 import { HARBOR_MIN, HARBOR_SIZE, PLAYERS_TIME, SHARKS_TIME, inHarbor, tierOf } from '../shared/config'
 import { room } from '../shared/messages'
-import { canPlanNow, canSlapNow, canStep, requestCancel, requestSlap, requestStep, slapCooldownLeft } from './input'
+import { canPlanNow, canStep, requestCancel, requestStep } from './input'
 import { gameState, isGuest, myCell, myMaxSteps, myPlan, myTargetInDanger, mySlot, phaseElapsed } from './state'
 
 // HUD for a 1600×720 mobile canvas, inside the interactable area (clear of
 // the Explorer's own left-hand controls). Layout:
 //   top-left stats · top-center turn pill · top-right radar
-//   bottom-left d-pad · bottom-right fish slap
+//   bottom-right d-pad
 
 // Bumped manually per deploy to spot stale cached bundles on the phone.
 export const BUILD_TAG = 'ui2'
@@ -388,10 +388,10 @@ function Radar(props: { ci: number; cj: number; myAddress: string }) {
   )
 }
 
-// --- bottom-left: d-pad ---
+// --- bottom-right: d-pad ---
 const PAD = 92
 const PAD_GAP = 6
-const DPAD_LEFT = 40
+const DPAD_RIGHT = 40
 
 function PadButton(props: { dir: string; icon: string; col: number; row: number; code: number }) {
   const pressed = isPressed(props.dir)
@@ -455,7 +455,7 @@ function DPad() {
   const size = PAD * 3 + PAD_GAP * 2
   return (
     // The left arrow's row sits above the Explorer's emote button (bottom-left).
-    <UiEntity uiTransform={{ positionType: 'absolute', position: { left: DPAD_LEFT, bottom: 16 }, width: size, height: size }}>
+    <UiEntity uiTransform={{ positionType: 'absolute', position: { right: DPAD_RIGHT, bottom: 16 }, width: size, height: size }}>
       <PadButton dir="up" icon={ICON.up} col={1} row={0} code={0} />
       <PadButton dir="left" icon={ICON.left} col={0} row={1} code={2} />
       <PadButton dir="right" icon={ICON.right} col={2} row={1} code={3} />
@@ -480,44 +480,6 @@ function StepPips(props: { used: number; max: number }) {
   return (
     <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 104, left: '50%' }, margin: { left: -(props.max * 26) / 2 }, flexDirection: 'row' }}>
       {pips}
-    </UiEntity>
-  )
-}
-
-// --- bottom-right: fish slap (stuns players next to you) ---
-function SlapButton() {
-  const cooldown = slapCooldownLeft()
-  const cooling = cooldown > 0
-  const ready = canSlapNow()
-  const SIZE = 132
-  return (
-    <UiEntity
-      uiTransform={{
-        positionType: 'absolute',
-        position: { right: 0, bottom: 0 },
-        flexDirection: 'column',
-        alignItems: 'center'
-      }}
-    >
-      <UiEntity
-        uiTransform={{
-          width: SIZE,
-          height: SIZE,
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderRadius: SIZE / 2,
-          borderWidth: 3,
-          borderColor: ready ? GOLD : EDGE,
-          opacity: ready ? 1 : 0.45
-        }}
-        uiBackground={{ color: isPressed('slap') ? rgba(1, 0.84, 0.32, 0.45) : INK }}
-        onMouseDown={() => {
-          if (requestSlap()) press('slap')
-        }}
-      >
-        <Icon src={ICON.fish} size={88} />
-      </UiEntity>
-      <Label value={cooling ? `${Math.ceil(cooldown)}` : 'SLAP'} fontSize={18} color={ready ? GOLD : MUTED} textAlign="middle-center" uiTransform={{ width: SIZE, height: 26, margin: { top: 4 } }} />
     </UiEntity>
   )
 }
@@ -649,7 +611,6 @@ const uiComponent = () => {
     <UiEntity uiTransform={{ width: '100%', height: '100%' }} uiBackground={{ color: CLEAR }}>
       <Stats score={h.slot?.score ?? 0} lives={h.slot?.extraLives ?? 0} harbor={h.harbor} tier={h.tier} />
       {h.slot && h.cell && <Radar ci={h.cell.i} cj={h.cell.j} myAddress={h.slot.address} />}
-      {!h.dead && <SlapButton />}
     </UiEntity>
   )
 }
