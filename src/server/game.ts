@@ -151,7 +151,7 @@ export function findSlot(key: string) {
   return null
 }
 
-// Resolve the sender's slot. Only an unidentified sender (review/guest mode)
+// Resolve the sender's slot. Only an unidentified sender (review mode)
 // falls back to the single connected slot; a known address without a slot
 // yet (still joining) must not act on someone else's.
 function senderSlot(context: { from: string } | null | undefined) {
@@ -431,13 +431,11 @@ function applyProfile(playerEntity: Entity, slotEntity: Entity) {
   if (equipped) slot.wearables = [...equipped.wearableUrns]
 }
 
-// One synced slot per connected player. Keyed by verified address; in
-// review/guest mode the address can be empty, so fall back to the entity id.
+// One synced slot per connected player, guests included. Keyed by verified
+// address; in review mode the address can be empty, so fall back to the entity id.
 function syncPlayerSlots() {
   const seen = new Set<string>()
   for (const [entity, identity] of engine.getEntitiesWith(PlayerIdentityData)) {
-    // Ephemeral guest accounts can't play (no slot → no moves, no score).
-    if (identity.isGuest) continue
     const key = identity.address.toLowerCase() || `entity-${entity}`
     seen.add(key)
     if (!findSlot(key)) {
