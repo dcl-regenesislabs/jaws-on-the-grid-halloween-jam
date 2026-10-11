@@ -118,8 +118,11 @@ function createBoardList(board: Entity): void {
   }))
   const note = label(0, LAYOUTS.far.top - 2 * LAYOUTS.far.step, LAYOUTS.far.font, TextAlignMode.TAM_MIDDLE_CENTER, CREAM)
 
+  // A single space, never '': the mobile (Bevy) client seems to keep the old
+  // glyphs when a TextShape goes empty, so big and small rows overlapped.
   const setText = (e: Entity, text: string) => {
-    if (TextShape.get(e).text !== text) TextShape.getMutable(e).text = text
+    const next = text === '' ? ' ' : text
+    if (TextShape.get(e).text !== next) TextShape.getMutable(e).text = next
   }
   let shown = ''
   engine.addSystem(() => {
