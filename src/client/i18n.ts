@@ -13,9 +13,8 @@ export function lang(): Lang {
   return tag.startsWith('es') ? 'es' : tag.startsWith('pt') ? 'pt' : 'en'
 }
 
-export function toggleLang() {
-  const order: Lang[] = ['en', 'es', 'pt']
-  override = order[(order.indexOf(lang()) + 1) % order.length]
+export function setLang(next: Lang) {
+  override = next
 }
 
 const ES = {
@@ -67,8 +66,7 @@ const ES = {
   'view-scoreboard': 'Ver tabla de puntajes',
   'scores.loading': 'Cargando puntajes...',
   'scores.error': 'Puntajes no disponibles',
-  'scores.none': 'Aún no hay puntajes guardados',
-  'lang.button': 'IDIOMA: ESPAÑOL'
+  'scores.none': 'Aún no hay puntajes guardados'
 } as const
 
 type Key = keyof typeof ES
@@ -122,8 +120,7 @@ const EN: Record<Key, string> = {
   'view-scoreboard': 'View scoreboard',
   'scores.loading': 'Loading scores...',
   'scores.error': 'Scores unavailable',
-  'scores.none': 'No saved scores yet',
-  'lang.button': 'LANGUAGE: ENGLISH'
+  'scores.none': 'No saved scores yet'
 }
 
 const PT: Record<Key, string> = {
@@ -175,8 +172,7 @@ const PT: Record<Key, string> = {
   'view-scoreboard': 'Ver placar',
   'scores.loading': 'Carregando pontos...',
   'scores.error': 'Pontos indisponíveis',
-  'scores.none': 'Ainda sem pontos salvos',
-  'lang.button': 'IDIOMA: PORTUGUÊS'
+  'scores.none': 'Ainda sem pontos salvos'
 }
 
 const DICT: Record<Lang, Record<Key, string>> = { en: EN, es: ES, pt: PT }

@@ -25,7 +25,7 @@ import { cinema } from './cinematic'
 import { scoreboard } from './state'
 import { ScoreboardUi } from './scoreboard-ui'
 import { openAdminPanel } from './admin-ui'
-import { t, toggleLang } from './i18n'
+import { Lang, lang, setLang, t } from './i18n'
 
 // HUD for a 1600×720 mobile canvas, inside the interactable area (clear of
 // the Explorer's own left-hand controls). Layout:
@@ -211,6 +211,12 @@ function TurnPill(props: { playersTurn: boolean; remaining: number }) {
   )
 }
 
+const FLAGS: { lang: Lang; src: string }[] = [
+  { lang: 'es', src: 'assets/images/ui/flag-ar.png' },
+  { lang: 'pt', src: 'assets/images/ui/flag-br.png' },
+  { lang: 'en', src: 'assets/images/ui/flag-us.png' }
+]
+
 // On the raft: the one rule worth reading, then go.
 function RaftHint() {
   return (
@@ -229,16 +235,19 @@ function RaftHint() {
     >
       <Label value={t('raft.hint1')} fontSize={16} color={MUTED} textAlign="middle-center" uiTransform={{ width: '100%', height: 24 }} />
       <Label value={t('raft.hint2')} fontSize={20} color={MINT} textAlign="middle-center" uiTransform={{ width: '100%', height: 30 }} />
-      {/* Language switch: only offered here on the raft, never mid-swim. */}
-      <UiEntity
-        uiTransform={{ width: 280, height: 56, margin: { top: 8 }, alignItems: 'center', justifyContent: 'center', borderRadius: 28, borderWidth: 2, borderColor: AQUA }}
-        uiBackground={{ color: isPressed('lang') ? rgba(0.36, 0.9, 0.92, 0.55) : INK }}
-        onMouseDown={() => {
-          press('lang')
-          toggleLang()
-        }}
-      >
-        <Label value={t('lang.button')} fontSize={20} color={AQUA} textAlign="middle-center" uiTransform={{ width: 270, height: 48 }} />
+      {/* Language selector: only offered here on the raft, never mid-swim. */}
+      <UiEntity uiTransform={{ flexDirection: 'row', margin: { top: 8 } }}>
+        {FLAGS.map((f) => {
+          const selected = lang() === f.lang
+          return (
+            <UiEntity
+              key={`flag-${f.lang}`}
+              uiTransform={{ width: 96, height: 64, margin: { left: 8, right: 8 }, borderWidth: selected ? 4 : 2, borderColor: selected ? GOLD : EDGE, borderRadius: 10, opacity: selected ? 1 : 0.55 }}
+              uiBackground={{ textureMode: 'stretch', texture: { src: f.src } }}
+              onMouseDown={() => setLang(f.lang)}
+            />
+          )
+        })}
       </UiEntity>
     </UiEntity>
   )
