@@ -1,6 +1,7 @@
 import { Color4 } from '@dcl/sdk/math'
 import ReactEcs, { Label, UiEntity } from '@dcl/sdk/react-ecs'
 import { scoreboard } from './state'
+import { t } from './i18n'
 
 const gold = Color4.create(1, .77, .28, 1)
 const ink = Color4.create(.035, .105, .115, 1)
@@ -16,7 +17,7 @@ export function ScoreboardUi() {
         uiBackground={{ color: gold }}
         onMouseDown={() => { scoreboard.open = false }}
       >
-        <Label value="EXIT" fontSize={34} color={ink} textAlign="middle-center" uiTransform={{ width: 300, height: 96 }} />
+        <Label value={t('exit')} fontSize={34} color={ink} textAlign="middle-center" uiTransform={{ width: 300, height: 96 }} />
       </UiEntity>
     </UiEntity>
   )

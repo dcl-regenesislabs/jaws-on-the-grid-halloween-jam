@@ -25,6 +25,7 @@ import { cinema } from './cinematic'
 import { scoreboard } from './state'
 import { ScoreboardUi } from './scoreboard-ui'
 import { openAdminPanel } from './admin-ui'
+import { t, toggleLang } from './i18n'
 
 // HUD for a 1600×720 mobile canvas, inside the interactable area (clear of
 // the Explorer's own left-hand controls). Layout:
@@ -105,9 +106,9 @@ function GuestBlocked() {
         uiBackground={{ color: rgba(0.03, 0.06, 0.12, 0.96) }}
       >
         <Icon src={ICON.head} size={110} />
-        <Label value="SIGN IN TO PLAY" fontSize={34} color={GOLD} textAlign="middle-center" uiTransform={{ height: 48 }} />
+        <Label value={t('sign-in.title')} fontSize={34} color={GOLD} textAlign="middle-center" uiTransform={{ height: 48 }} />
         <Label
-          value={'Guest accounts cannot swim with the sharks.\nLog in with a wallet or social account,\nthen re-enter the scene.'}
+          value={t('sign-in.body')}
           fontSize={18}
           color={MUTED}
           textAlign="middle-center"
@@ -187,7 +188,7 @@ function Stats(props: { score: number; lives: number; harbor: boolean; tier: num
       <Icon src={ICON.buoy} size={32} />
       <Label value={`${props.lives}`} fontSize={22} color={WHITE} textAlign="middle-left" uiTransform={{ width: 34, height: 46, flexShrink: 0, margin: { left: 4 } }} />
       <Icon src={props.harbor ? ICON.raft : ICON.fin} size={30} />
-      <Label value={props.harbor ? 'RAFT' : `DEPTH ${props.tier + 1}`} fontSize={18} color={depthColor} textAlign="middle-left" uiTransform={{ width: 92, height: 46, flexShrink: 0, margin: { left: 4 } }} />
+      <Label value={props.harbor ? t('raft') : `${t('depth')} ${props.tier + 1}`} fontSize={18} color={depthColor} textAlign="middle-left" uiTransform={{ width: 92, height: 46, flexShrink: 0, margin: { left: 4 } }} />
     </UiEntity>
   )
 }
@@ -219,7 +220,7 @@ function TurnPill(props: { playersTurn: boolean; remaining: number }) {
         uiBackground={{ color: INK }}
       >
         <UiEntity uiTransform={{ height: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-          <Label value={props.playersTurn ? 'PICK A MOVE' : 'GO!'} fontSize={26} color={color} textAlign="middle-center" uiTransform={{ width: 220, height: 40 }} />
+          <Label value={props.playersTurn ? t('pick-move') : t('go')} fontSize={26} color={color} textAlign="middle-center" uiTransform={{ width: 220, height: 40 }} />
         </UiEntity>
         <UiEntity uiTransform={{ width: W - 48, height: 8, margin: { top: 6 }, borderRadius: 4 }} uiBackground={{ color: rgba(1, 1, 1, 0.12) }}>
           <UiEntity
@@ -248,8 +249,19 @@ function RaftHint() {
       }}
       uiBackground={{ color: INK_SOFT }}
     >
-      <Label value="Tap arrows to plan. Avoid shark lanes." fontSize={16} color={MUTED} textAlign="middle-center" uiTransform={{ width: '100%', height: 24 }} />
-      <Label value="Swim off the raft to start!" fontSize={20} color={MINT} textAlign="middle-center" uiTransform={{ width: '100%', height: 30 }} />
+      <Label value={t('raft.hint1')} fontSize={16} color={MUTED} textAlign="middle-center" uiTransform={{ width: '100%', height: 24 }} />
+      <Label value={t('raft.hint2')} fontSize={20} color={MINT} textAlign="middle-center" uiTransform={{ width: '100%', height: 30 }} />
+      {/* Language switch: only offered here on the raft, never mid-swim. */}
+      <UiEntity
+        uiTransform={{ width: 280, height: 56, margin: { top: 8 }, alignItems: 'center', justifyContent: 'center', borderRadius: 28, borderWidth: 2, borderColor: AQUA }}
+        uiBackground={{ color: isPressed('lang') ? rgba(0.36, 0.9, 0.92, 0.55) : INK }}
+        onMouseDown={() => {
+          press('lang')
+          toggleLang()
+        }}
+      >
+        <Label value={t('lang.button')} fontSize={20} color={AQUA} textAlign="middle-center" uiTransform={{ width: 270, height: 48 }} />
+      </UiEntity>
     </UiEntity>
   )
 }
@@ -272,7 +284,7 @@ function LaneWarning() {
       }}
       uiBackground={{ color: CORAL_DEEP }}
     >
-      <Label value={blast ? 'BLAST NEXT ROUND - MOVE OUT!' : 'YOUR SPOT IS ON A SHARK LANE'} fontSize={18} color={WHITE} textAlign="middle-center" uiTransform={{ width: 332, height: 44 }} />
+      <Label value={blast ? t('lane.blast') : t('lane.shark')} fontSize={18} color={WHITE} textAlign="middle-center" uiTransform={{ width: 332, height: 44 }} />
     </UiEntity>
   )
 }
@@ -557,7 +569,7 @@ function BarrelButton() {
       count={`${slot?.barrels ?? 0}`}
       ready={ready}
       color={BARREL_YELLOW}
-      title={harbor || !sharkInHarpoonRange() ? 'NO TARGET' : 'HARPOON'}
+      title={harbor || !sharkInHarpoonRange() ? t('no-target') : t('harpoon')}
       onPress={() => requestHarpoon()}
     />
   )
@@ -574,7 +586,7 @@ function ChumButton() {
       count={`${slot?.chum ?? 0}`}
       ready={ready}
       color={CORAL}
-      title="CHUM"
+      title={t('chum')}
       onPress={() => requestChum()}
     />
   )
@@ -594,12 +606,12 @@ function HuntedPill() {
       {count > 0 && (
         <UiEntity uiTransform={{ width: RADAR + 8, height: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 22, borderWidth: 2, borderColor: HUNTER_RED }} uiBackground={{ color: CORAL_DEEP }}>
           {fins}
-          <Label value={`HUNTED x${count}`} fontSize={18} color={WHITE} textAlign="middle-center" uiTransform={{ width: 104, height: 40, margin: { left: 4 } }} />
+          <Label value={`${t('hunted')} x${count}`} fontSize={18} color={WHITE} textAlign="middle-center" uiTransform={{ width: 104, height: 40, margin: { left: 4 } }} />
         </UiEntity>
       )}
       {bleeding && (
         <UiEntity uiTransform={{ width: RADAR + 8, height: 34, margin: { top: 6 }, alignItems: 'center', justifyContent: 'center', borderRadius: 17 }} uiBackground={{ color: rgba(0.5, 0, 0.02, 0.9) }}>
-          <Label value="BLOOD IN THE WATER" fontSize={15} color={WHITE} textAlign="middle-center" uiTransform={{ width: RADAR, height: 30 }} />
+          <Label value={t('blood')} fontSize={15} color={WHITE} textAlign="middle-center" uiTransform={{ width: RADAR, height: 30 }} />
         </UiEntity>
       )}
     </UiEntity>
@@ -697,7 +709,7 @@ function MineButton() {
       count={`${count}`}
       ready={canPlantMine()}
       color={CORAL}
-      title="MINE"
+      title={t('mine')}
       onPress={() => requestMine()}
     />
   )
@@ -713,13 +725,13 @@ function Contracts() {
   const icons = [ICON.coin, ICON.mine, ICON.down]
   return (
     <UiEntity uiTransform={{ positionType: 'absolute', position: { left: 0, top: 64 }, width: 360, height: 40, flexDirection: 'row', alignItems: 'center', padding: { left: 12, right: 8 }, borderRadius: 20 }} uiBackground={{ color: INK_SOFT }}>
-      <Label value={`EXP ${slot.objectiveLevel + 1}`} fontSize={15} color={AQUA} textAlign="middle-left" uiTransform={{ width: 58, height: 36, flexShrink: 0 }} />
+      <Label value={`${t('exp')} ${slot.objectiveLevel + 1}`} fontSize={15} color={AQUA} textAlign="middle-left" uiTransform={{ width: 58, height: 36, flexShrink: 0 }} />
       {goals.map((goal, n) => {
         const done = (slot.objectiveMask & goal.bit) !== 0
         return (
           <UiEntity key={`goal-${n}`} uiTransform={{ width: 84, height: 36, flexDirection: 'row', alignItems: 'center' }}>
             <Icon src={icons[n]} size={24} />
-            <Label value={done ? 'OK' : `${Math.min(progress[n], goal.target)}/${goal.target}`} fontSize={16} color={done ? MINT : WHITE} textAlign="middle-left" uiTransform={{ width: 56, height: 32, margin: { left: 4 } }} />
+            <Label value={done ? t('ok') : `${Math.min(progress[n], goal.target)}/${goal.target}`} fontSize={16} color={done ? MINT : WHITE} textAlign="middle-left" uiTransform={{ width: 56, height: 32, margin: { left: 4 } }} />
           </UiEntity>
         )
       })}
@@ -728,7 +740,7 @@ function Contracts() {
 }
 
 let previousGear: { mines: number; lives: number; boost: number; mask: number; level: number; kills: number; barrels: number; chum: number; blood: number } | null = null
-let notice = ''
+let notice = '' // i18n key, translated when drawn
 let noticeUntil = 0
 function updatePickupNotice() {
   const slot = mySlot()
@@ -736,18 +748,18 @@ function updatePickupNotice() {
   if (!slot || slot.dead) { previousGear = null; return }
   if (previousGear) {
     let next = ''
-    if (slot.mines > previousGear.mines) next = 'MINE FOUND - SET IT, THEN ESCAPE'
-    if (slot.extraLives > previousGear.lives) next = 'LIFE JACKET - ONE SHARK BITE SAVED'
-    if (slot.boostUntilTurn > previousGear.boost) next = 'SWIM BOOST - 4 MOVES / 5 ROUNDS'
-    if (slot.barrels > previousGear.barrels) next = 'YELLOW BARREL - HARPOON A SHARK NEAR YOU'
-    if (slot.chum > previousGear.chum) next = 'CHUM - DROP IT TO LURE THE SHARKS'
-    if (!slot.dead && slot.barrels < previousGear.barrels) next = 'HARPOONED! THAT SHARK IS SLOWED'
-    if (!slot.dead && slot.chum < previousGear.chum) next = 'CHUM IN THE WATER - SWIM AWAY!'
-    if (!slot.dead && slot.extraLives < previousGear.lives) next = 'JACKET SAVED YOU!'
-    if (slot.bloodUntilTurn > previousGear.blood) next = 'BLOOD IN THE WATER - THEY ARE COMING'
-    if (slot.sharksKilled > previousGear.kills) next = 'SHARK DOWN! +75'
-    if (slot.objectiveMask !== previousGear.mask && slot.objectiveMask > 0) next = 'CONTRACT COMPLETE - BONUS SCORED'
-    if (slot.objectiveLevel > previousGear.level) next = 'EXPEDITION COMPLETE - NEW CONTRACTS'
+    if (slot.mines > previousGear.mines) next = 'notice.mine'
+    if (slot.extraLives > previousGear.lives) next = 'notice.jacket'
+    if (slot.boostUntilTurn > previousGear.boost) next = 'notice.boost'
+    if (slot.barrels > previousGear.barrels) next = 'notice.barrel'
+    if (slot.chum > previousGear.chum) next = 'notice.chum'
+    if (!slot.dead && slot.barrels < previousGear.barrels) next = 'notice.harpooned'
+    if (!slot.dead && slot.chum < previousGear.chum) next = 'notice.chum-used'
+    if (!slot.dead && slot.extraLives < previousGear.lives) next = 'notice.jacket-used'
+    if (slot.bloodUntilTurn > previousGear.blood) next = 'notice.blood'
+    if (slot.sharksKilled > previousGear.kills) next = 'notice.shark-down'
+    if (slot.objectiveMask !== previousGear.mask && slot.objectiveMask > 0) next = 'notice.contract'
+    if (slot.objectiveLevel > previousGear.level) next = 'notice.expedition'
     if (next) { notice = next; noticeUntil = uiClock + 2.8 }
   }
   previousGear = {
@@ -764,10 +776,10 @@ function EquipmentStatus() {
     <UiEntity uiTransform={{ positionType: 'absolute', position: { top: 186, left: '50%' }, margin: { left: -230 }, width: 460, height: 98, flexDirection: 'column', alignItems: 'center' }}>
       {rounds > 0 && <UiEntity uiTransform={{ width: 282, height: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: AQUA, borderRadius: 18 }} uiBackground={{ color: INK }}>
         <Icon src={ICON.boost} size={36} />
-        <Label value={`4 MOVES / ${Math.min(5, rounds)} ROUNDS`} fontSize={19} color={AQUA} textAlign="middle-center" uiTransform={{ width: 228, height: 40 }} />
+        <Label value={`4 ${t('boost.status')} / ${Math.min(5, rounds)} ${t('rounds')}`} fontSize={19} color={AQUA} textAlign="middle-center" uiTransform={{ width: 228, height: 40 }} />
       </UiEntity>}
       {uiClock < noticeUntil && <UiEntity uiTransform={{ width: 460, height: 42, margin: { top: 8 }, alignItems: 'center', justifyContent: 'center', borderRadius: 16 }} uiBackground={{ color: INK }}>
-        <Label value={notice} fontSize={18} color={GOLD} textAlign="middle-center" uiTransform={{ width: 450, height: 40 }} />
+        <Label value={t(notice as Parameters<typeof t>[0])} fontSize={18} color={GOLD} textAlign="middle-center" uiTransform={{ width: 450, height: 40 }} />
       </UiEntity>}
     </UiEntity>
   )
@@ -802,10 +814,10 @@ function Button(props: { label: string; onPress: () => void; filled: boolean; ic
 
 function deathLine(slot: ReturnType<typeof mySlot>): string {
   if (!slot) return ''
-  if (slot.deathCause === 'mine') return 'Caught in a mine blast.'
-  if (slot.killedBy === 'bruce') return "You stayed on Bruce's line."
-  if (slot.killedBy === 'tiger') return 'The Tiger cut you off.'
-  return 'A wandering shark found you.'
+  if (slot.deathCause === 'mine') return t('death.mine')
+  if (slot.killedBy === 'bruce') return t('death.bruce')
+  if (slot.killedBy === 'tiger') return t('death.tiger')
+  return t('death.wander')
 }
 
 function DeathCard(props: { score: number }) {
@@ -828,15 +840,15 @@ function DeathCard(props: { score: number }) {
         uiBackground={{ color: rgba(0.06, 0.03, 0.06, 0.94) }}
       >
         <Icon src={blasted ? ICON.mine : ICON.head} size={140} />
-        <Label value={blasted ? 'BLASTED!' : 'CHOMPED!'} fontSize={44} color={CORAL} textAlign="middle-center" uiTransform={{ width: 380, height: 54 }} />
+        <Label value={blasted ? t('death.blasted') : t('death.chomped')} fontSize={44} color={CORAL} textAlign="middle-center" uiTransform={{ width: 380, height: 54 }} />
         <Label value={deathLine(mySlot())} fontSize={18} color={WHITE} textAlign="middle-center" uiTransform={{ width: 380, height: 28 }} />
         <UiEntity uiTransform={{ height: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
           <Icon src={ICON.coin} size={36} margin={{ right: 8 }} />
           <Label value={`${props.score}`} fontSize={30} color={GOLD} textAlign="middle-left" uiTransform={{ width: 170, height: 42 }} />
         </UiEntity>
-        <Button label={endingPreview.active ? 'BACK TO RAFT' : 'SWIM AGAIN'} filled width={320} height={72} onPress={() => endingPreview.active ? finishEndingPreview() : room.send('respawn', {})} />
+        <Button label={endingPreview.active ? t('back-to-raft') : t('swim-again')} filled width={320} height={72} onPress={() => endingPreview.active ? finishEndingPreview() : room.send('respawn', {})} />
         <Button
-          label={savedScore ? 'SCORE SAVED' : 'SAVE SCORE'}
+          label={savedScore ? t('score-saved') : t('save-score')}
           filled={false}
           icon={ICON.trophy}
           disabled={savedScore || endingPreview.active}
@@ -847,7 +859,7 @@ function DeathCard(props: { score: number }) {
             savedScore = true
           }}
         />
-        <Label value={endingPreview.active ? 'Preview only. Score and gear unchanged.' : 'Score and contracts kept. Gear lost.'} fontSize={16} color={MUTED} textAlign="middle-center" uiTransform={{ width: 380, height: 26 }} />
+        <Label value={endingPreview.active ? t('death.preview') : t('death.kept')} fontSize={16} color={MUTED} textAlign="middle-center" uiTransform={{ width: 380, height: 26 }} />
       </UiEntity>
     </UiEntity>
   )
@@ -860,8 +872,8 @@ function ConnectionError() {
         uiTransform={{ width: 440, flexDirection: 'column', alignItems: 'center', padding: 24, borderRadius: 28, borderWidth: 2, borderColor: CORAL }}
         uiBackground={{ color: rgba(0.06, 0.03, 0.06, 0.94) }}
       >
-        <Label value="LOST AT SEA" fontSize={36} color={CORAL} textAlign="middle-center" uiTransform={{ height: 50 }} />
-        <Label value={'No multiplayer server.\nRe-enter the scene to retry.'} fontSize={20} color={MUTED} textAlign="middle-center" uiTransform={{ width: '100%', height: 70 }} />
+        <Label value={t('lost.title')} fontSize={36} color={CORAL} textAlign="middle-center" uiTransform={{ height: 50 }} />
+        <Label value={t('lost.body')} fontSize={20} color={MUTED} textAlign="middle-center" uiTransform={{ width: '100%', height: 70 }} />
       </UiEntity>
     </UiEntity>
   )

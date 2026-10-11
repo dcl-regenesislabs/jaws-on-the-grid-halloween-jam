@@ -15,6 +15,7 @@ import { Leaderboard } from '../shared/components'
 import { inHarbor } from '../shared/config'
 import { room } from '../shared/messages'
 import { cinema } from './cinematic'
+import { lang, t } from './i18n'
 import { gameState, mySlot, pendingPlan, scoreboard } from './state'
 
 export function initHarbor(): void {
@@ -54,7 +55,7 @@ export function initHarbor(): void {
       entity: board,
       opts: mobile
         ? { button: InputAction.IA_POINTER, maxDistance: 40, showFeedback: false }
-        : { button: InputAction.IA_POINTER, hoverText: 'View scoreboard', maxDistance: 40 }
+        : { button: InputAction.IA_POINTER, hoverText: t('view-scoreboard'), maxDistance: 40 }
     }, () => { toggleScoreboard() })
   }
   updateInteraction()
@@ -126,7 +127,7 @@ function createBoardList(board: Entity): void {
     const status = saved?.status ?? 'loading'
     const entries = status === 'ready' ? Array.from(saved?.entries ?? []) : []
     const active = scoreboard.open ? 'zoom' : 'far'
-    const key = active + '|' + status + '|' + entries.map((e) => `${e.name}:${e.score}`).join('|')
+    const key = lang() + '|' + active + '|' + status + '|' + entries.map((e) => `${e.name}:${e.score}`).join('|')
     if (key === shown) return
     shown = key
     for (const set of sets) {
@@ -139,7 +140,7 @@ function createBoardList(board: Entity): void {
     }
     setText(
       note,
-      entries.length > 0 ? '' : status === 'loading' ? 'Loading scores...' : status === 'error' ? 'Scores unavailable' : 'No saved scores yet'
+      entries.length > 0 ? '' : status === 'loading' ? t('scores.loading') : status === 'error' ? t('scores.error') : t('scores.none')
     )
   })
 }
