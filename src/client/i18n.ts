@@ -17,8 +17,6 @@ export function toggleLang() {
 }
 
 const ES = {
-  'sign-in.title': 'INICIA SESIÓN PARA JUGAR',
-  'sign-in.body': 'Las cuentas de invitado no pueden nadar con los tiburones.\nEntra con una wallet o cuenta social\ny vuelve a entrar a la escena.',
   'raft': 'BALSA',
   'depth': 'PROF.',
   'pick-move': 'ELIGE UN MOVIMIENTO',
@@ -74,8 +72,6 @@ const ES = {
 type Key = keyof typeof ES
 
 const EN: Record<Key, string> = {
-  'sign-in.title': 'SIGN IN TO PLAY',
-  'sign-in.body': 'Guest accounts cannot swim with the sharks.\nLog in with a wallet or social account,\nthen re-enter the scene.',
   'raft': 'RAFT',
   'depth': 'DEPTH',
   'pick-move': 'PICK A MOVE',

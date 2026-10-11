@@ -19,7 +19,7 @@ import {
 import { objectiveProgress, objectives } from '../shared/objectives'
 import { room } from '../shared/messages'
 import { canDropChum, canHarpoon, canPlantMine, canPlanNow, canStep, requestCancel, requestChum, requestHarpoon, requestMine, requestStep, sharkInHarpoonRange } from './input'
-import { canPreviewEnding, endingPreview, finishEndingPreview, previewEnding, gameState, isGuest, myCell, myHunters, myMaxSteps, myPlan, myTargetInBlast, myTargetInDanger, mySlot, phaseElapsed } from './state'
+import { canPreviewEnding, endingPreview, finishEndingPreview, previewEnding, gameState, myCell, myHunters, myMaxSteps, myPlan, myTargetInBlast, myTargetInDanger, mySlot, phaseElapsed } from './state'
 import { explosionFlash } from './mines'
 import { cinema } from './cinematic'
 import { scoreboard } from './state'
@@ -77,7 +77,7 @@ export function setupUi() {
   ReactEcsRenderer.addUiRenderer(engine.addEntity(), movePad, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'device', zIndex: 20 })
   // The death modal is centered on the device.
   ReactEcsRenderer.addUiRenderer(engine.addEntity(), centerHud, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'device', zIndex: 15 })
-  // No server / guest account: full-screen blockers over everything,
+  // No server: full-screen blocker over everything,
   // Explorer areas included.
   ReactEcsRenderer.addUiRenderer(engine.addEntity(), blocker, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'none', zIndex: 30 })
   // Kill feed on its own layer: it stays up while you are dead (your own
@@ -95,29 +95,7 @@ const cinematicOverlay = () => cinema.active || cinema.returning > 0 ? (
 
 const serverLost = () => !serverConnected && noServerElapsed > 12
 
-const blocker = () => (isGuest() ? <GuestBlocked /> : serverLost() ? <ConnectionError /> : null)
-
-// Guests can't play; the server never gives them a slot either.
-function GuestBlocked() {
-  return (
-    <UiEntity uiTransform={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }} uiBackground={{ color: rgba(0, 0, 0, 0.85) }}>
-      <UiEntity
-        uiTransform={{ width: 480, flexDirection: 'column', alignItems: 'center', padding: 24, borderRadius: 28, borderWidth: 2, borderColor: GOLD }}
-        uiBackground={{ color: rgba(0.03, 0.06, 0.12, 0.96) }}
-      >
-        <Icon src={ICON.head} size={110} />
-        <Label value={t('sign-in.title')} fontSize={34} color={GOLD} textAlign="middle-center" uiTransform={{ height: 48 }} />
-        <Label
-          value={t('sign-in.body')}
-          fontSize={18}
-          color={MUTED}
-          textAlign="middle-center"
-          uiTransform={{ width: '100%', height: 84 }}
-        />
-      </UiEntity>
-    </UiEntity>
-  )
-}
+const blocker = () => (serverLost() ? <ConnectionError /> : null)
 
 const vignette = () =>
   !mySlot()?.dead && explosionFlash > 0 ? (
@@ -644,7 +622,7 @@ function updateKillFeed() {
 // Height HuntedPill takes under the radar right now (0 when it is hidden).
 function huntedPillHeight(): number {
   const slot = mySlot()
-  if (serverLost() || isGuest() || !slot || slot.dead || inHarbor(slot.cellI, slot.cellJ)) return 0
+  if (serverLost() || !slot || slot.dead || inHarbor(slot.cellI, slot.cellJ)) return 0
   const bleeding = slot.bloodUntilTurn > gameState().turn
   return (myHunters().count > 0 ? 44 : 0) + (bleeding ? 40 : 0)
 }
@@ -882,7 +860,7 @@ function ConnectionError() {
 // Movement is anchored directly to the device inset, without extra padding.
 const movePad = () => {
   const slot = mySlot()
-  if (!isMobile() || scoreboard.open || serverLost() || isGuest() || !slot || slot.dead) return null
+  if (!isMobile() || scoreboard.open || serverLost() || !slot || slot.dead) return null
   return (
     <UiEntity uiTransform={{ width: '100%', height: '100%' }}>
       <DPad />
@@ -894,7 +872,7 @@ const movePad = () => {
 const uiComponent = () => {
   if (scoreboard.open) return null
   const slot = mySlot()
-  if (serverLost() || isGuest() || slot?.dead) return null
+  if (serverLost() || slot?.dead) return null
   const playersTurn = gameState().phase === 'players'
   const cell = myCell()
   const harbor = cell ? inHarbor(cell.i, cell.j) : true
@@ -928,7 +906,7 @@ const uiComponent = () => {
 // The death modal stays centered within the device safe area.
 const centerHud = () => {
   if (scoreboard.open) return null
-  if (serverLost() || isGuest()) return null
+  if (serverLost()) return null
   const slot = mySlot()
   const dead = slot?.dead ?? false
   if (!dead && wasDead) savedScore = false
