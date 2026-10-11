@@ -24,6 +24,7 @@ import { explosionFlash } from './mines'
 import { cinema } from './cinematic'
 import { scoreboard } from './state'
 import { ScoreboardUi } from './scoreboard-ui'
+import { edgePadded } from './ui-frame'
 import { openAdminPanel } from './admin-ui'
 import { Lang, lang, setLang, t } from './i18n'
 
@@ -69,20 +70,20 @@ function isPressed(key: string): boolean {
 }
 
 export function setupUi() {
-  ReactEcsRenderer.addUiRenderer(engine.addEntity(), ScoreboardUi, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'interactable', zIndex: 25 })
-  ReactEcsRenderer.setUiRenderer(uiComponent, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'interactable', zIndex: 10 })
+  ReactEcsRenderer.addUiRenderer(engine.addEntity(), edgePadded(ScoreboardUi), { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'interactable', zIndex: 25 })
+  ReactEcsRenderer.setUiRenderer(edgePadded(uiComponent), { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'interactable', zIndex: 10 })
   // Explosion feedback only; changing turns never tints the screen.
   ReactEcsRenderer.addUiRenderer(engine.addEntity(), vignette, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'none', zIndex: 0 })
   // Movement uses the device safe area so the left thumb reaches the arrows.
   ReactEcsRenderer.addUiRenderer(engine.addEntity(), movePad, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'device', zIndex: 20 })
   // The death modal is centered on the device.
-  ReactEcsRenderer.addUiRenderer(engine.addEntity(), centerHud, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'device', zIndex: 15 })
+  ReactEcsRenderer.addUiRenderer(engine.addEntity(), edgePadded(centerHud), { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'device', zIndex: 15 })
   // No server: full-screen blocker over everything,
   // Explorer areas included.
   ReactEcsRenderer.addUiRenderer(engine.addEntity(), blocker, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'none', zIndex: 30 })
   // Kill feed on its own layer: it stays up while you are dead (your own
   // ending included), when the rest of the HUD is hidden.
-  ReactEcsRenderer.addUiRenderer(engine.addEntity(), killFeedHud, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'interactable', zIndex: 12 })
+  ReactEcsRenderer.addUiRenderer(engine.addEntity(), edgePadded(killFeedHud), { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'interactable', zIndex: 12 })
   ReactEcsRenderer.addUiRenderer(engine.addEntity(), cinematicOverlay, { virtualWidth: 1920, virtualHeight: 1080, screenInset: 'none', zIndex: 5 })
 }
 

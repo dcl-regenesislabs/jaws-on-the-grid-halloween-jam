@@ -4,6 +4,7 @@ import { Mine } from '../shared/components'
 import { CELL, PROP_SCALE, VIEW_CELLS, WATER_Y, blastCells, cellCenter } from '../shared/config'
 import { gameState, mySlot } from './state'
 import { sfx, SFX } from './audio'
+import { setSpriteMaterial } from './sprite'
 
 const HIDDEN = Vector3.create(0, 0, 0)
 type Visual = { sprite: Entity; label: Entity; tiles: Entity[]; serial: number; burstAt: number; seenExplosion: boolean }
@@ -22,7 +23,7 @@ function createVisual(): Visual {
   Transform.create(sprite, { scale: HIDDEN })
   Billboard.create(sprite, { billboardMode: BillboardMode.BM_ALL })
   MeshRenderer.setPlane(sprite)
-  Material.setBasicMaterial(sprite, { texture: Material.Texture.Common({ src: 'assets/images/items/sea-mine.png' }), castShadows: false })
+  setSpriteMaterial(sprite, 'assets/images/items/sea-mine.png')
   const label = engine.addEntity()
   Transform.create(label, { scale: HIDDEN })
   Billboard.create(label, { billboardMode: BillboardMode.BM_ALL })

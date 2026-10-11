@@ -148,7 +148,7 @@ export const MAX_CHUM = 8 // synced pool
 // Same slot, avatar, rules and actions as a real player (src/server/bots.ts);
 // nothing on the client tells them apart. Each bot takes a share of the
 // shark and pickup pools like a player does (MAX_SHARKS, MAX_PICKUPS).
-export const BOT_COUNT = 10 // bots kept in the world; 0 turns them off
+export const BOT_COUNT = 3 // bots kept in the world; 0 turns them off
 export const BOT_PLAY_SECONDS = 300 // a bot plays this long, then lets the sharks get it
 export const BOT_PLAY_JITTER = 20 // ± seconds, so bots don't all lose on the same turn
 export const BOT_LEAVE_CHANCE = 0.4 // after losing: leave (a new bot joins later) instead of swimming again
