@@ -1,19 +1,21 @@
 import { getPlayerLanguage } from '@dcl/sdk/platform'
 
-// English / Spanish. The default follows the phone's language
+// English / Spanish / Portuguese. The default follows the phone's language
 // (getPlayerLanguage(), a BCP-47 tag that also tracks mid-session changes);
 // the raft button overrides it for this session.
-export type Lang = 'en' | 'es'
+export type Lang = 'en' | 'es' | 'pt'
 
 let override: Lang | null = null
 
 export function lang(): Lang {
   if (override) return override
-  return getPlayerLanguage().toLowerCase().startsWith('es') ? 'es' : 'en'
+  const tag = getPlayerLanguage().toLowerCase()
+  return tag.startsWith('es') ? 'es' : tag.startsWith('pt') ? 'pt' : 'en'
 }
 
 export function toggleLang() {
-  override = lang() === 'es' ? 'en' : 'es'
+  const order: Lang[] = ['en', 'es', 'pt']
+  override = order[(order.indexOf(lang()) + 1) % order.length]
 }
 
 const ES = {
@@ -124,6 +126,61 @@ const EN: Record<Key, string> = {
   'lang.button': 'LANGUAGE: ENGLISH'
 }
 
+const PT: Record<Key, string> = {
+  'raft': 'BALSA',
+  'depth': 'PROF.',
+  'pick-move': 'SUA VEZ',
+  'go': 'VAI!',
+  'raft.hint1': 'Toque nas setas. Evite rotas de tubarão.',
+  'raft.hint2': 'Nade para fora da balsa e comece!',
+  'lane.blast': 'EXPLOSÃO NA RODADA! SAIA!',
+  'lane.shark': 'SEU LUGAR: ROTA DE TUBARÃO',
+  'no-target': 'SEM ALVO',
+  'harpoon': 'ARPÃO',
+  'chum': 'ISCA',
+  'mine': 'MINA',
+  'hunted': 'CAÇADO',
+  'blood': 'SANGUE NA ÁGUA',
+  'exp': 'EXP',
+  'ok': 'OK',
+  'notice.mine': 'MINA ACHADA - POSICIONE E FUJA',
+  'notice.jacket': 'COLETE - SALVA DE UMA MORDIDA',
+  'notice.boost': 'IMPULSO - 4 MOVIMENTOS / 5 RODADAS',
+  'notice.barrel': 'BARRIL AMARELO - ARPOE UM TUBARÃO',
+  'notice.chum': 'ISCA - SOLTE PARA ATRAIR TUBARÕES',
+  'notice.harpooned': 'ARPOADO! O TUBARÃO FICOU MAIS LENTO',
+  'notice.chum-used': 'ISCA NA ÁGUA - NADE PARA LONGE!',
+  'notice.jacket-used': 'O COLETE SALVOU VOCÊ!',
+  'notice.blood': 'SANGUE NA ÁGUA - ELES VÊM AÍ!',
+  'notice.shark-down': 'TUBARÃO ABATIDO! +75',
+  'notice.contract': 'CONTRATO COMPLETO - BÔNUS GANHO',
+  'notice.expedition': 'EXPEDIÇÃO COMPLETA - NOVOS CONTRATOS',
+  'boost.status': 'MOV',
+  'rounds': 'RODADAS',
+  'death.mine': 'Pegou a explosão de uma mina.',
+  'death.bruce': 'Você ficou na rota do Bruce.',
+  'death.tiger': 'O Tigre cortou seu caminho.',
+  'death.wander': 'Um tubarão errante te achou.',
+  'death.blasted': 'EXPLODIDO!',
+  'death.chomped': 'MORDIDO!',
+  'back-to-raft': 'À BALSA',
+  'swim-again': 'NADAR DE NOVO',
+  'score-saved': 'PONTOS SALVOS',
+  'save-score': 'SALVAR PONTOS',
+  'death.preview': 'Prévia. Pontos e equipamento intactos.',
+  'death.kept': 'Pontos e contratos mantidos. Sem itens.',
+  'lost.title': 'À DERIVA',
+  'lost.body': 'Sem servidor multijogador.\nEntre de novo para tentar.',
+  'exit': 'SAIR',
+  'view-scoreboard': 'Ver placar',
+  'scores.loading': 'Carregando pontos...',
+  'scores.error': 'Pontos indisponíveis',
+  'scores.none': 'Ainda sem pontos salvos',
+  'lang.button': 'IDIOMA: PORTUGUÊS'
+}
+
+const DICT: Record<Lang, Record<Key, string>> = { en: EN, es: ES, pt: PT }
+
 export function t(key: Key): string {
-  return lang() === 'es' ? ES[key] : EN[key]
+  return DICT[lang()][key]
 }
