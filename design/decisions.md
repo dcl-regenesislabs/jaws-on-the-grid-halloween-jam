@@ -191,3 +191,16 @@ Known consequence, not changed: tier is at most 2 now, so `WANDER_BITE_TIER` (3)
 non-hunter sharks never bite and at most 5 sharks spawn around you. Phone: own tag and
 radar line seen, [own-nametag-radar-phone.jpg](playtests/own-nametag-radar-phone.jpg).
 In-world lines, net and terrain-off not yet seen in game.
+
+2026-10-10 - Owner (Kuruk): billboard item art (mines, boost, bait, life jacket) can't have a
+transparent background with its material type; hide the AvatarShape nametags; on desktop
+(`!isMobile()`) keep the UI off the screen borders.
+Desktop Explorer A/B/C test (sea-mine.png beside the player): basic material = black square;
+basic + `alphaTexture` = background gone but the dark mine turns faint (alpha read from
+brightness); PBR `MTM_ALPHA_TEST` + same texture as emissive = clean cutout, looks unlit.
+Agent choice: the last one, `setSpriteMaterial` in `src/client/sprite.ts`. A live pickup was
+not caught on camera after the switch; phone not yet checked.
+AvatarShape `name: ''` removes the client's pill nametag (desktop, seen); our TextShape name
+stays. Desktop HUD renderers sit inside a 32 px (virtual 1920x1080) margin via
+`edgePadded` in `src/client/ui-frame.tsx`; vignette, cinematic, no-server blocker and the
+mobile move pad stay unpadded. Seen on desktop; phone unchanged by design.

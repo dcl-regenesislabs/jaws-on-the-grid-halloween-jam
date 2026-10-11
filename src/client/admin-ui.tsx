@@ -5,6 +5,7 @@ import ReactEcs, { Label, ReactEcsRenderer, UiEntity } from '@dcl/sdk/react-ecs'
 import { AdminState, isAdminAddress } from '../shared/admin'
 import { BOT_MAX } from '../shared/config'
 import { room } from '../shared/messages'
+import { edgePadded } from './ui-frame'
 
 // ADMIN panel, only for wallets in ADMINS (src/shared/config.ts): reset the
 // World and set the number of bots. Its own UI layer, top-left under the
@@ -44,7 +45,7 @@ export function setupAdminUi(): void {
   engine.addSystem((dt) => {
     clock += dt
   })
-  ReactEcsRenderer.addUiRenderer(engine.addEntity(), adminPanel, {
+  ReactEcsRenderer.addUiRenderer(engine.addEntity(), edgePadded(adminPanel), {
     virtualWidth: 1920, virtualHeight: 1080, screenInset: 'interactable', zIndex: 12
   })
 }

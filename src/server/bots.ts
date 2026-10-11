@@ -27,6 +27,7 @@ import {
   depthOf,
   inBoard,
   inHarbor,
+  pathCells,
   sharkCells,
   tierOf
 } from '../shared/config'
@@ -332,6 +333,22 @@ function othersInWater(self: string): { i: number; j: number }[] {
   return out
 }
 
+// Cells other bots stand on or have planned to end on: a bot never picks one
+// (players may still collide with anyone, bots keep out of each other's way).
+function botClaims(self: Entity): Set<number> {
+  const out = new Set<number>()
+  for (const other of bots) {
+    if (other.entity === self) continue
+    const s = PlayerSlot.getOrNull(other.entity)
+    if (!s || s.dead) continue
+    out.add(cellKey(s.cellI, s.cellJ))
+    const path = Array.from(s.path)
+    const cells = pathCells(s.cellI, s.cellJ, path)
+    if (cells.length) out.add(cellKey(cells[cells.length - 1][0], cells[cells.length - 1][1]))
+  }
+  return out
+}
+
 // Pulled back inside BOT_MAX_DEPTH (and the board).
 function nearRaft(i: number, j: number): [number, number] {
   const c = (v: number) => Math.max(1, Math.min(GRID - 2, CENTER_CELL + Math.max(-BOT_MAX_DEPTH, Math.min(BOT_MAX_DEPTH, v - CENTER_CELL))))
@@ -370,6 +387,7 @@ function nearestSide(slot: MutSlot): number {
 function choosePath(bot: Bot, slot: MutSlot, turn: number, losing: boolean, noise: number): number[] {
   const walls = LANES_BLOCK_PATHS ? wallKeys() : new Set<number>()
   const danger = dangerKeys()
+  const claimed = botClaims(bot.entity)
   const opts = options(slot, walls)
   const now = turnClock().now
   const sharks: { i: number; j: number; hunter: boolean; mine: boolean }[] = []
@@ -380,7 +398,7 @@ function choosePath(bot: Bot, slot: MutSlot, turn: number, losing: boolean, nois
     const [si, sj] = losing ? [s.cellI + s.dirX * s.len, s.cellJ + s.dirZ * s.len] : [s.cellI, s.cellJ]
     sharks.push({ i: si, j: sj, hunter: s.role > 0, mine: s.role > 0 && s.target === slot.address })
   }
-  if (losing) return losingPath(bot, slot, opts, danger, sharks, now)
+  if (losing) return losingPath(bot, slot, opts, danger, sharks, now, claimed)
 
   const onRaft = inHarbor(slot.cellI, slot.cellJ)
   const lingering = onRaft && bot.raftTurns > 0
@@ -420,6 +438,7 @@ function choosePath(bot: Bot, slot: MutSlot, turn: number, losing: boolean, nois
   for (const o of opts) {
     let sc = -manhattan(o.i, o.j, gi, gj)
     if (danger.has(cellKey(o.i, o.j))) sc -= 1000
+    if (claimed.has(cellKey(o.i, o.j))) sc -= 30
     sc -= tooDeep(o.i, o.j)
     if (!lingering && inHarbor(o.i, o.j) && !onRaft) sc -= 6 // no going back to the raft mid-run
     if (lingering && !inHarbor(o.i, o.j)) sc -= 50
@@ -446,7 +465,7 @@ function choosePath(bot: Bot, slot: MutSlot, turn: number, losing: boolean, nois
 // Late in the attempt a due blast will do too.
 function losingPath(
   bot: Bot, slot: MutSlot, opts: Option[], danger: Set<number>,
-  sharks: { i: number; j: number; hunter: boolean; mine: boolean }[], now: number
+  sharks: { i: number; j: number; hunter: boolean; mine: boolean }[], now: number, claimed: Set<number>
 ): number[] {
   if (danger.has(cellKey(slot.cellI, slot.cellJ))) return []
   const blasts = new Set(dueBlastKeys())
@@ -455,6 +474,7 @@ function losingPath(
   let bestScore = -Infinity
   for (const o of opts) {
     let sc = -tooDeep(o.i, o.j)
+    if (claimed.has(cellKey(o.i, o.j))) sc -= 30
     if (inHarbor(o.i, o.j)) sc -= 50
     if (late && blasts.has(cellKey(o.i, o.j))) sc += 20
     if (sharks.length) {

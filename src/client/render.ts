@@ -31,12 +31,13 @@ import {
   inHarbor
 } from '../shared/config'
 import { initAudio, sfx, SFX } from './audio'
-import { initAvatars, myAvatarPosition } from './avatars'
+import { initAvatars, myAvatarPosition, myGroupOffset } from './avatars'
 import { cinema, initCinematic } from './cinematic'
 import { inputSystem_ } from './input'
 import { initHarbor } from './harbor'
 import { cameraShake, mineVisualSystem } from './mines'
 import { gameState, myCell, myPlanCells, mySlot, phaseClockSystem } from './state'
+import { setSpriteMaterial } from './sprite'
 import { createBoardEdge, createDepthLines, createGridWindow, createWaterFloor, gridWindowSystem, waterScrollSystem } from './water'
 
 // Everything presentation-only lives here: water, grid, camera, touch HUD
@@ -203,7 +204,8 @@ function myCellMarkerSystem(): void {
   }
   // Ride along with my avatar as it swims, so frame and avatar move as one.
   const at = myAvatarPosition()
-  t.position = Vector3.create(at ? at.x : cellCenter(cell.i), WATER_Y + 0.26, at ? at.z : cellCenter(cell.j))
+  const off = myGroupOffset() // the frame marks the cell, not my spot in a crowd
+  t.position = Vector3.create(at ? at.x - off.x : cellCenter(cell.i), WATER_Y + 0.26, at ? at.z - off.z : cellCenter(cell.j))
   t.scale = Vector3.One()
 
   // Plan frames, only while picking (myPlanCells is empty otherwise).
@@ -645,10 +647,7 @@ function pickupVisual(kind: string): Entity {
     MeshRenderer.setPlane(visual)
     Billboard.create(visual, { billboardMode: BillboardMode.BM_ALL })
     const image = kind === 'mine' ? 'sea-mine' : kind === 'boost' ? 'swim-boost' : kind === 'chum' ? 'bait-fish' : 'life-jacket'
-    Material.setBasicMaterial(visual, {
-      texture: Material.Texture.Common({ src: `assets/images/items/${image}.png` }),
-      castShadows: false
-    })
+    setSpriteMaterial(visual, `assets/images/items/${image}.png`)
   }
   Transform.create(visual, { scale: HIDDEN })
   return visual

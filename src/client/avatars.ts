@@ -79,6 +79,9 @@ interface Swimmer {
   revealAt: number // clock when the spawn preload ends
   preloadIndex: number // next clip to preload
   stamp: number
+  offs: { x: number; z: number }[] // group offset of each point of the polyline (meters)
+  ox: number // group offset being drawn right now
+  oz: number
 }
 
 const swimmers = new Map<Entity, Swimmer>()
@@ -140,12 +143,24 @@ export function myAvatarPosition(): { x: number; y: number; z: number } | null {
   return null
 }
 
+// The group offset my avatar is drawn with, so the selector can leave it out.
+export function myGroupOffset(): { x: number; z: number } {
+  const me = mySlot()
+  if (!me) return { x: 0, z: 0 }
+  for (const [slotEntity, slot] of engine.getEntitiesWith(PlayerSlot)) {
+    if (slot.address !== me.address) continue
+    const s = swimmers.get(slotEntity)
+    return s ? { x: s.ox, z: s.oz } : { x: 0, z: 0 }
+  }
+  return { x: 0, z: 0 }
+}
+
 function heightAt(i: number, j: number): number {
   return inHarbor(i, j) ? RAFT_Y : AVATAR_Y
 }
 
-function point(i: number, j: number) {
-  return { x: cellCenter(i), y: heightAt(i, j), z: cellCenter(j) }
+function point(i: number, j: number, dx = 0, dz = 0) {
+  return { x: cellCenter(i) + dx, y: heightAt(i, j), z: cellCenter(j) + dz }
 }
 
 function trigger(s: Swimmer, emote: string): void {
@@ -162,16 +177,64 @@ function play(s: Swimmer, emote: string): void {
   s.pending = emote
 }
 
+// Several players in one cell stand in a tidy block instead of overlapping:
+// 2 side by side, 3 = 2 over 1, 4 = 2 over 2, 5 = 2 / 1 / 2, 6 = 3 over 3...
+// The camera looks toward +z, so screen-right is +x and screen-up is +z.
+const GROUP_SPAN = CELL * 0.75 // meters the block may cover
+const GROUP_GAP = 1.1 // widest spacing between neighbours
+
+function rowSizes(n: number): number[] {
+  if (n === 5) return [2, 1, 2]
+  const cols = Math.ceil(Math.sqrt(n))
+  const rows = Math.ceil(n / cols)
+  const sizes: number[] = []
+  for (let r = 0; r < rows; r++) sizes.push(Math.floor(n / rows) + (r < n % rows ? 1 : 0))
+  return sizes
+}
+
+// Offset (meters) from the cell center for each slot, by a stable order.
+function groupOffsets(cellOf: (slot: Entity) => { i: number; j: number } | null): Map<Entity, { dx: number; dz: number }> {
+  const byCell = new Map<number, Entity[]>()
+  for (const [e, slot] of engine.getEntitiesWith(PlayerSlot)) {
+    if (slot.dead) continue
+    const c = cellOf(e)
+    if (!c) continue
+    const key = c.i * 100000 + c.j
+    const list = byCell.get(key)
+    if (list) list.push(e)
+    else byCell.set(key, [e])
+  }
+  const out = new Map<Entity, { dx: number; dz: number }>()
+  for (const list of byCell.values()) {
+    if (list.length < 2) continue
+    list.sort((a, b) => a - b)
+    const sizes = rowSizes(list.length)
+    const widest = Math.max(sizes.length, ...sizes)
+    const gap = Math.min(GROUP_GAP, GROUP_SPAN / Math.max(1, widest - 1))
+    let n = 0
+    sizes.forEach((count, r) => {
+      const dz = ((sizes.length - 1) / 2 - r) * gap // first row on top (+z)
+      for (let k = 0; k < count; k++) out.set(list[n++], { dx: (k - (count - 1) / 2) * gap, dz })
+    })
+  }
+  return out
+}
+
 function swimmerSystem(dt: number): void {
   clock += dt
   const me = mySlot()
+  const offsets = groupOffsets((e) => {
+    const slot = PlayerSlot.get(e)
+    return me !== null && slot.address === me.address ? myCell() : { i: slot.cellI, j: slot.cellJ }
+  })
 
   for (const [slotEntity, slot] of engine.getEntitiesWith(PlayerSlot)) {
     const isMe = me !== null && slot.address === me.address
     const cell = isMe ? myCell() : { i: slot.cellI, j: slot.cellJ }
     if (!cell) continue
-    const x = cellCenter(cell.i)
-    const z = cellCenter(cell.j)
+    const off = offsets.get(slotEntity)
+    const x = cellCenter(cell.i) + (off ? off.dx : 0)
+    const z = cellCenter(cell.j) + (off ? off.dz : 0)
     const onRaft = inHarbor(cell.i, cell.j)
 
     // (Re)build when the profile changes.
@@ -185,7 +248,7 @@ function swimmerSystem(dt: number): void {
       const entity = engine.addEntity()
       AvatarShape.create(entity, {
         id: `swimmer-${slot.address}`,
-        name: slot.name,
+        name: '', // the client's nametag is hidden; our TextShape tag shows the name
         bodyShape: slot.bodyShape,
         wearables,
         emotes: [],
@@ -205,8 +268,9 @@ function swimmerSystem(dt: number): void {
         outlineWidth: 0.2
       })
       s = {
-        mover, entity, tag, profileKey, points: [point(cell.i, cell.j)], toX: x, toZ: z, t: GLIDE_TIME, lift: 0, yaw: 0,
-        emote: '', pending: '', lastTrigger: -999, revealAt: clock + PRELOAD_HIDE, preloadIndex: 1, stamp: 0
+        mover, entity, tag, profileKey, points: [point(cell.i, cell.j, off?.dx, off?.dz)], toX: x, toZ: z, t: GLIDE_TIME, lift: 0, yaw: 0,
+        emote: '', pending: '', lastTrigger: -999, revealAt: clock + PRELOAD_HIDE, preloadIndex: 1, stamp: 0,
+        offs: [{ x: off ? off.dx : 0, z: off ? off.dz : 0 }], ox: off ? off.dx : 0, oz: off ? off.dz : 0
       }
       swimmers.set(slotEntity, s)
       trigger(s, SWIM) // preload; float follows once the client accepts it
@@ -244,9 +308,20 @@ function swimmerSystem(dt: number): void {
       const fromPath = path.length > 0 && Math.abs(cellCenter(startI) - pos.x) + Math.abs(cellCenter(startJ) - pos.z) < CELL
       const near = Math.abs(x - pos.x) + Math.abs(z - pos.z) <= CELL + 0.1
       const here = { x: pos.x, y: pos.y - s.lift, z: pos.z } // path heights exclude the swim lift
-      if (fromPath) s.points = [here, ...pathCells(startI, startJ, path).map(([i, j]) => point(i, j))]
-      else if (near) s.points = [here, point(cell.i, cell.j)]
-      else s.points = [point(cell.i, cell.j)]
+      const end = point(cell.i, cell.j, off?.dx, off?.dz)
+      const now = { x: s.ox, z: s.oz }
+      const to = { x: off ? off.dx : 0, z: off ? off.dz : 0 }
+      if (fromPath) {
+        const mid = pathCells(startI, startJ, path).map(([i, j]) => point(i, j)).slice(0, -1)
+        s.points = [here, ...mid, end]
+        s.offs = [now, ...mid.map(() => ({ x: 0, z: 0 })), to]
+      } else if (near) {
+        s.points = [here, end]
+        s.offs = [now, to]
+      } else {
+        s.points = [end]
+        s.offs = [to]
+      }
       s.toX = x
       s.toZ = z
       s.t = 0
@@ -261,6 +336,11 @@ function swimmerSystem(dt: number): void {
     const b = s.points[Math.min(at + 1, segs)]
     const f = segs > 0 ? e * segs - at : 1
     const done = k >= 1 || segs === 0
+    // Group offset in effect: interpolated along the same polyline as the position.
+    const oa = s.offs[Math.min(at, s.offs.length - 1)]
+    const ob = s.offs[Math.min(at + 1, s.offs.length - 1)]
+    s.ox = done ? ob.x : oa.x + (ob.x - oa.x) * f
+    s.oz = done ? ob.z : oa.z + (ob.z - oa.z) * f
     // Parent movement doesn't trigger native locomotion. Select a scene
     // emote for the current segment, then explicitly settle at the endpoint.
     const desired = done ? (onRaft ? IDLE : FLOAT) : (a.y === AVATAR_Y || b.y === AVATAR_Y ? SWIM : WALK)
